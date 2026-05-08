@@ -118,7 +118,7 @@ Configuration variables
 | `CONTEXTUAL_HISTORY_TOGGLE` | `^G` | Keybinding to flip between context and global modes. |
 | `CONTEXTUAL_HISTORY_GROUP_BY` | `()` | Ordered marker list for the default resolver (single walk-up). |
 | `CONTEXTUAL_HISTORY_GROUP_STOPS` | `()` | Walk-up boundary paths. Reaching one without a marker hit fails the search. |
-| `CONTEXTUAL_HISTORY_REFRESH_BEFORE_EXEC` | `true` | Refresh in-memory history from disk at the start of each ZLE editing cycle (`line-init` hook) so up-arrow / fzf-history / any history-reading widget sees other terminals' writes BEFORE the user starts interacting with this prompt. Mtime-gated — steady-state cost is one `stat()` per editing cycle. |
+| `CONTEXTUAL_HISTORY_REFRESH_ON_NAV` | `true` | Wrap each history-navigation widget (`up-history`, `down-history`, `history-search-*`, `history-incremental-search-*`, etc.) so it runs `fc -RI` immediately before reading `$history`, picking up cross-shell writes that landed while this shell was idle. Mtime-gated — steady-state cost is one `stat()` per widget invocation. Only meaningful with `SHARE_HISTORY`; otherwise a no-op. |
 | `CONTEXTUAL_HISTORY_USE_MODULE` | `false` | If `true`, prepend `module/` to `$module_path` so the optional native helper loads from the source tree without a system install. |
 | `CONTEXTUAL_HISTORY_DEBUG` | `false` | If `true`, the plugin prints `[ch-dbg] ...` lines to stderr at key transitions (mode swap, chpwd, tee fallback). Off by default to avoid prompt noise. |
 

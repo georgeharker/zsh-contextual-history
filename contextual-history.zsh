@@ -23,7 +23,7 @@
 #                                 (default: $HOME/.directory_history)
 # HISTORY_START_WITH_GLOBAL     - if true, start in global mode (default: false)
 # CONTEXTUAL_HISTORY_TOGGLE  - keybinding to toggle modes (default: ^G)
-# CONTEXTUAL_HISTORY_REFRESH_BEFORE_EXEC
+# CONTEXTUAL_HISTORY_REFRESH_ON_NAV
 #                               - if true (the default), wrap each history-
 #                                 navigation widget (up-arrow, ↓,
 #                                 history-search-*) so that just before it
@@ -139,7 +139,7 @@ _ch_dbg() {
 [[ -z $HISTORY_BASE ]] && HISTORY_BASE="$HOME/.directory_history"
 [[ -z $HISTORY_START_WITH_GLOBAL ]] && HISTORY_START_WITH_GLOBAL=false
 [[ -z $CONTEXTUAL_HISTORY_TOGGLE ]] && CONTEXTUAL_HISTORY_TOGGLE='^G'
-[[ -z $CONTEXTUAL_HISTORY_REFRESH_BEFORE_EXEC ]] && CONTEXTUAL_HISTORY_REFRESH_BEFORE_EXEC=true
+[[ -z $CONTEXTUAL_HISTORY_REFRESH_ON_NAV ]] && CONTEXTUAL_HISTORY_REFRESH_ON_NAV=true
 [[ -z $CONTEXTUAL_HISTORY_USE_MODULE ]] && CONTEXTUAL_HISTORY_USE_MODULE=false
 
 # List of marker filenames to look for when walking up from $PWD. The
@@ -497,7 +497,7 @@ function _context-history-precmd() {
     # these widgets, the wrap is lost - call
     # `_context-history-ensure-widget-wrap` from your deferred-load
     # hook to re-apply.
-    if [[ $CONTEXTUAL_HISTORY_REFRESH_BEFORE_EXEC == true ]]; then
+    if [[ $CONTEXTUAL_HISTORY_REFRESH_ON_NAV == true ]]; then
       _context-history-ensure-widget-wrap
     fi
   fi
