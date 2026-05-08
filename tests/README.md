@@ -68,6 +68,13 @@ Caller env vars passed through to the spawned shell:
 `TEST_START_GLOBAL`, `CONTEXTUAL_HISTORY_USE_MODULE`,
 `CONTEXTUAL_HISTORY_DEBUG`.
 
+`TEST_PRE_SOURCE` is a special caller-set string inlined verbatim into
+the spawned shell's `.zshrc` immediately before `source $PLUGIN`.
+Used to inject `zstyle ...` config (or arbitrary pre-source code) that
+must take effect before the plugin resolves its options. Not env-passed
+through `zpty` because zpty eval-reparses argv and mangles quoted
+values.
+
 ## Test scenarios
 
 | ID | Validates |
@@ -88,6 +95,7 @@ Caller env vars passed through to the spawned shell:
 | **p14** | Mode-N (no SHARE/INC) chpwd flush via `fc -AI` writes in-memory ring to outgoing dir's file before swap |
 | **p15** | `CONTEXTUAL_HISTORY_GROUP_BY=(.git)` resolver walks up to project root |
 | **p16** | `GROUP_BY` "closest ancestor with any marker wins" — pattern order doesn't matter when ancestors at different depths each have a different marker |
+| **p17** | `zstyle ':contextual-history:*' group-by .git` — config via zstyle (no env var) takes effect at plugin source time; verifies the env-var > zstyle > default precedence chain |
 
 ## Adding a new test
 

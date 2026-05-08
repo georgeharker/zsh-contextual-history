@@ -95,6 +95,13 @@ SAVEHIST=10000
 
 CONTEXTUAL_HISTORY_USE_MODULE=\${CONTEXTUAL_HISTORY_USE_MODULE:-false}
 
+# Pre-source hook: caller can set \$TEST_PRE_SOURCE in the parent
+# environment to inject zsh code (typically zstyle commands) that must
+# run BEFORE the plugin resolves its config. Inlined into this rc at
+# generation time -- env-passing through zpty is unsafe because zpty
+# eval-reparses its argv, mangling quoted values.
+${TEST_PRE_SOURCE:-}
+
 source "$PTY_PLUGIN_PATH"
 
 # Bind ^P/^N AFTER plugin source so the keymap binding resolves to

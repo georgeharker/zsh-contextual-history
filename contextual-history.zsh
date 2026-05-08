@@ -19,47 +19,41 @@
 # Configuration
 #-------------------------------------------------------------------------------
 #
-# HISTORY_BASE                  - base directory for per-directory histories
-#                                 (default: $HOME/.directory_history)
-# HISTORY_START_WITH_GLOBAL     - if true, start in global mode (default: false)
-# CONTEXTUAL_HISTORY_TOGGLE  - keybinding to toggle modes (default: ^G)
-# CONTEXTUAL_HISTORY_REFRESH_ON_NAV
-#                               - if true (the default), wrap each history-
-#                                 navigation widget (up-arrow, ↓,
-#                                 history-search-*) so that just before it
-#                                 reads `$history` we run `fc -RI` to merge
-#                                 in any cross-shell writes that happened
-#                                 while this shell was idle. Mtime-gated:
-#                                 steady-state cost is one stat() per
-#                                 widget invocation. Only meaningful when
-#                                 SHARE_HISTORY is set; otherwise refresh
-#                                 is a no-op (per-shell isolation
-#                                 respected).
-# CONTEXTUAL_HISTORY_USE_MODULE      - if true, prepend the plugin's `module/`
-#                                 directory to $module_path so the optional
-#                                 native helper (built from module/ via its
-#                                 Makefile) loads from the plugin tree
-#                                 directly without a system install. The
-#                                 plugin still works fine without this
-#                                 (pure-shell fallback). Default: false.
-# CONTEXTUAL_HISTORY_GROUP_BY
-#                               - array of marker filenames (e.g. (.git Cargo.toml
-#                                 package.json)). When non-empty, the plugin
-#                                 walks up from $PWD looking for any of these
-#                                 markers; the first ancestor directory that
-#                                 contains a match becomes the "group root"
-#                                 whose per-dir history file is used. So all
-#                                 directories under one project share one
-#                                 history file. If no marker is found while
-#                                 walking up to /, falls back to ${PWD:A}.
-#                                 Default: () empty -> every dir is its own
-#                                 group (original behaviour).
-# _context-history-group  - resolver function. Returns (prints) a
-#                                 canonical "group key" path that determines
-#                                 which per-dir history file is used for the
-#                                 current $PWD. Default uses GROUP_BY above
-#                                 if set, else returns ${PWD:A}. Override
-#                                 this function for fully custom grouping.
+# Every option resolves env-var > zstyle > default. Both forms are
+# documented below; the env-var name is canonical (the plugin reads it
+# internally), and zstyle is the recommended user-facing form.
+#
+# zstyle context: ':contextual-history:*'
+#
+#   env-var name                          | zstyle key            | default
+#   --------------------------------------+-----------------------+---------------------
+#   HISTORY_BASE                          | history-base          | $HOME/.directory_history
+#   HISTORY_START_WITH_GLOBAL             | start-with-global     | false
+#   CONTEXTUAL_HISTORY_TOGGLE             | toggle-key            | ^G
+#   CONTEXTUAL_HISTORY_REFRESH_ON_NAV     | refresh-on-nav        | true
+#   CONTEXTUAL_HISTORY_USE_MODULE         | use-module            | false
+#   CONTEXTUAL_HISTORY_DEBUG              | debug                 | false
+#   CONTEXTUAL_HISTORY_GROUP_BY           | group-by              | ()
+#   CONTEXTUAL_HISTORY_GROUP_STOPS        | group-stops           | ()
+#   CONTEXTUAL_HISTORY_REFRESHING_WIDGETS | refreshing-widgets    | (full nav-widget list)
+#
+# Behaviour notes:
+#   * refresh-on-nav: wraps every history-navigation widget so it runs
+#     `fc -RI` immediately before reading `$history`, picking up
+#     cross-shell writes that landed while idle. Mtime-gated; only
+#     meaningful with SHARE_HISTORY (no-op otherwise).
+#   * use-module: when true, prepends ./module/ to $module_path so the
+#     locally-built native helper (.so/.bundle from module/Makefile)
+#     loads without a system install.
+#   * group-by: marker filenames (e.g. .git Cargo.toml package.json).
+#     When non-empty, the resolver walks up from $PWD; the first
+#     ancestor containing any listed marker becomes the group root.
+#     Empty means every absolute dir is its own group (upstream's
+#     original behaviour).
+#   * group-stops: paths above which walk-up should NOT cross.
+#
+# For arbitrary grouping logic, override `_context-history-group`
+# (a function returning the canonical group key on stdout).
 #
 #-------------------------------------------------------------------------------
 # History
@@ -125,22 +119,65 @@ zmodload -F zsh/stat b:zstat 2>/dev/null
 zmodload -F zsh/files b:ln 2>/dev/null   # builtin ln avoids fork(2) per tee
 zmodload zsh/system 2>/dev/null          # provides zsystem flock (fcntl)
 
-# Debug helper. Set CONTEXTUAL_HISTORY_DEBUG=true to enable trace prints
-# to stderr. Used liberally inside hooks and widgets but only emits
+# Debug helper. Used liberally inside hooks and widgets but only emits
 # when explicitly enabled, so default cost is one branch.
 _ch_dbg() {
   [[ $CONTEXTUAL_HISTORY_DEBUG == true ]] && print -ru2 -- "[ch-dbg] $*"
 }
 
 #-------------------------------------------------------------------------------
-# configuration, the base under which the directory histories are stored
+# configuration
 #-------------------------------------------------------------------------------
+#
+# Two-step resolution per setting (env var > zstyle > default):
+#   1. If the variable is already set in the environment, respect it.
+#   2. Otherwise look up zstyle ':contextual-history:*' <key>.
+#   3. Otherwise apply the built-in default.
+#
+# The plugin reads only the canonical env-var-style variable internally,
+# so the hot path stays a plain `$VAR` lookup. Helpers below populate
+# the variables once at source time.
+#
+# zstyle context: `:contextual-history:*`
+# Example .zshrc:
+#   zstyle ':contextual-history:*' use-module true
+#   zstyle ':contextual-history:*' group-by .histroot .git
+#   zstyle ':contextual-history:*' group-stops $HOME
 
-[[ -z $HISTORY_BASE ]] && HISTORY_BASE="$HOME/.directory_history"
-[[ -z $HISTORY_START_WITH_GLOBAL ]] && HISTORY_START_WITH_GLOBAL=false
-[[ -z $CONTEXTUAL_HISTORY_TOGGLE ]] && CONTEXTUAL_HISTORY_TOGGLE='^G'
-[[ -z $CONTEXTUAL_HISTORY_REFRESH_ON_NAV ]] && CONTEXTUAL_HISTORY_REFRESH_ON_NAV=true
-[[ -z $CONTEXTUAL_HISTORY_USE_MODULE ]] && CONTEXTUAL_HISTORY_USE_MODULE=false
+# Scalar resolver. Sets <varname> if not already set, preferring zstyle
+# value at <key>, falling back to <default>.
+_ch_resolve() {
+  local varname=$1 key=$2 default=$3 val
+  [[ -n ${(P)varname} ]] && return 0
+  if zstyle -s ':contextual-history:*' "$key" val; then
+    typeset -g "$varname=$val"
+  else
+    typeset -g "$varname=$default"
+  fi
+}
+
+# Array resolver. Treats an empty array as "unset" (matches the user's
+# intuition that `arr=()` means "don't override"). Remaining args after
+# <key> are the default array.
+_ch_resolve_arr() {
+  local varname=$1 key=$2; shift 2
+  [[ -n ${(P)varname} ]] && return 0
+  local -a result
+  if zstyle -a ':contextual-history:*' "$key" result; then
+    typeset -ga "$varname"
+    set -A "$varname" "${result[@]}"
+  else
+    typeset -ga "$varname"
+    set -A "$varname" "$@"
+  fi
+}
+
+_ch_resolve HISTORY_BASE                      history-base       "$HOME/.directory_history"
+_ch_resolve HISTORY_START_WITH_GLOBAL         start-with-global  false
+_ch_resolve CONTEXTUAL_HISTORY_TOGGLE         toggle-key         '^G'
+_ch_resolve CONTEXTUAL_HISTORY_REFRESH_ON_NAV refresh-on-nav     true
+_ch_resolve CONTEXTUAL_HISTORY_USE_MODULE     use-module         false
+_ch_resolve CONTEXTUAL_HISTORY_DEBUG          debug              false
 
 # List of marker filenames to look for when walking up from $PWD. The
 # resolver does ONE upward traversal; at each ancestor, it checks all
@@ -158,14 +195,14 @@ _ch_dbg() {
 # submodule's .git, or an explicit .histroot anywhere up the tree).
 #
 # Default: empty - every dir is its own group (original behaviour).
-typeset -ga CONTEXTUAL_HISTORY_GROUP_BY
+_ch_resolve_arr CONTEXTUAL_HISTORY_GROUP_BY    group-by
 
 # Stop points - paths above which walk-up should NOT cross. If walk-up
 # reaches a stop point without finding any marker, the resolver falls back
 # to ${PWD:A}. Useful to bound the search to e.g. $HOME so we don't pick
 # up a stray marker in a parent of $HOME.
 # Default: empty (walk all the way to /).
-typeset -ga CONTEXTUAL_HISTORY_GROUP_STOPS
+_ch_resolve_arr CONTEXTUAL_HISTORY_GROUP_STOPS group-stops
 
 #-------------------------------------------------------------------------------
 # Directory grouping
@@ -679,16 +716,13 @@ zle -N _context-history-refreshing-widget
 # Set of widgets to wrap. Configurable so users can extend (or shrink)
 # the list. The wrap is idempotent, so changing this array between
 # precmds is safe.
-typeset -ga CONTEXTUAL_HISTORY_REFRESHING_WIDGETS
-[[ ${#CONTEXTUAL_HISTORY_REFRESHING_WIDGETS} -eq 0 ]] && \
-  CONTEXTUAL_HISTORY_REFRESHING_WIDGETS=(
-    up-line-or-history down-line-or-history
-    up-line-or-search down-line-or-search
-    up-history down-history
-    history-search-backward history-search-forward
-    history-beginning-search-backward history-beginning-search-forward
-    history-incremental-search-backward history-incremental-search-forward
-  )
+_ch_resolve_arr CONTEXTUAL_HISTORY_REFRESHING_WIDGETS refreshing-widgets \
+  up-line-or-history down-line-or-history \
+  up-line-or-search down-line-or-search \
+  up-history down-history \
+  history-search-backward history-search-forward \
+  history-beginning-search-backward history-beginning-search-forward \
+  history-incremental-search-backward history-incremental-search-forward
 
 # Re-apply the wrap on each precmd. Idempotent: if our wrapper is
 # already in place for a widget, skip it. If another plugin has wrapped

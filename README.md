@@ -23,8 +23,8 @@ context-history and global-history), and adds:
 - A scenario-based test matrix that exercises both pure-shell and
   native-module paths against `SHARE` / `INC_APPEND` / both / neither
 
-Status: 16 PTY scenarios, run under both pure-shell and native-module
-paths — 32/32 green when the module is built, 16/16 + 16 skips when it
+Status: 17 PTY scenarios, run under both pure-shell and native-module
+paths — 34/34 green when the module is built, 17/17 + 17 skips when it
 isn't.
 
 [upstream]: https://github.com/jimhester/per-directory-history
@@ -35,18 +35,26 @@ Usage
 ----------------------------------------------------------------------------
 
 ```zsh
-# In your .zshrc:
-source /path/to/contextual-history.zsh
+# In your .zshrc, BEFORE sourcing the plugin:
 
 # Optional: group history by project root rather than per-directory.
-CONTEXTUAL_HISTORY_GROUP_BY=(.histroot .git)
+zstyle ':contextual-history:*' group-by .histroot .git
+# Equivalent env-var form: CONTEXTUAL_HISTORY_GROUP_BY=(.histroot .git)
 
 # Optional: don't walk above $HOME looking for markers.
-CONTEXTUAL_HISTORY_GROUP_STOPS=($HOME)
+zstyle ':contextual-history:*' group-stops $HOME
+# Equivalent env-var form: CONTEXTUAL_HISTORY_GROUP_STOPS=($HOME)
+
+source /path/to/contextual-history.zsh
 ```
 
+Every setting accepts both forms — pick whichever fits your dotfile
+style. The full mapping is in the [Configuration](#configuration)
+section below; if a setting is set both ways, the env var wins.
+
 Press `^G` to toggle between the active context's history and your global
-history. The toggle key is configurable via `CONTEXTUAL_HISTORY_TOGGLE`.
+history. The toggle key is configurable via the `toggle-key` zstyle (or the
+`CONTEXTUAL_HISTORY_TOGGLE` env var).
 
 ----------------------------------------------------------------------------
 Contextual grouping
@@ -58,9 +66,12 @@ There are two ways to configure it.
 ### 1. Marker-list config
 
 ```zsh
-CONTEXTUAL_HISTORY_GROUP_BY=(.histroot .git)
-CONTEXTUAL_HISTORY_GROUP_STOPS=($HOME)
+zstyle ':contextual-history:*' group-by    .histroot .git
+zstyle ':contextual-history:*' group-stops $HOME
 ```
+
+(Equivalent env-var form: `CONTEXTUAL_HISTORY_GROUP_BY=(.histroot .git)`,
+`CONTEXTUAL_HISTORY_GROUP_STOPS=($HOME)`.)
 
 How it works: the resolver does **one** upward walk from `$PWD`. At each
 ancestor it checks whether the ancestor contains *any* of the listed
@@ -68,7 +79,7 @@ marker filenames. The **closest ancestor with any marker wins** and
 becomes the context root. Pattern order only matters for same-ancestor
 tie-breaking.
 
-If walk-up reaches a directory listed in `GROUP_STOPS` without finding
+If walk-up reaches a directory listed in `group-stops` without finding
 a marker, the resolver gives up and falls back to `$PWD` (per-directory
 behaviour for that branch of the tree).
 
@@ -105,22 +116,52 @@ path under `$HISTORY_BASE`.
 
 A helper `_context-history-walk-up <markers...>` is exposed for
 you to compose custom resolvers using the same walk-up semantics. It
-honours `CONTEXTUAL_HISTORY_GROUP_STOPS`.
+honours the `group-stops` zstyle / `CONTEXTUAL_HISTORY_GROUP_STOPS` env var.
 
 ----------------------------------------------------------------------------
-Configuration variables
+Configuration
 ----------------------------------------------------------------------------
 
-| Variable | Default | Effect |
-|----|----|----|
-| `HISTORY_BASE` | `$HOME/.directory_history` | Base dir for per-context history files. |
-| `HISTORY_START_WITH_GLOBAL` | `false` | If `true`, start in global mode rather than context mode. |
-| `CONTEXTUAL_HISTORY_TOGGLE` | `^G` | Keybinding to flip between context and global modes. |
-| `CONTEXTUAL_HISTORY_GROUP_BY` | `()` | Ordered marker list for the default resolver (single walk-up). |
-| `CONTEXTUAL_HISTORY_GROUP_STOPS` | `()` | Walk-up boundary paths. Reaching one without a marker hit fails the search. |
-| `CONTEXTUAL_HISTORY_REFRESH_ON_NAV` | `true` | Wrap each history-navigation widget (`up-history`, `down-history`, `history-search-*`, `history-incremental-search-*`, etc.) so it runs `fc -RI` immediately before reading `$history`, picking up cross-shell writes that landed while this shell was idle. Mtime-gated — steady-state cost is one `stat()` per widget invocation. Only meaningful with `SHARE_HISTORY`; otherwise a no-op. |
-| `CONTEXTUAL_HISTORY_USE_MODULE` | `false` | If `true`, prepend `module/` to `$module_path` so the optional native helper loads from the source tree without a system install. |
-| `CONTEXTUAL_HISTORY_DEBUG` | `false` | If `true`, the plugin prints `[ch-dbg] ...` lines to stderr at key transitions (mode swap, chpwd, tee fallback). Off by default to avoid prompt noise. |
+Every setting can be configured **either** as an environment variable
+**or** via `zstyle` — pick whichever your dotfiles already use. Both
+forms are fully supported; the mapping table below lists both side by
+side.
+
+Resolution order at plugin source time:
+
+1. If the env var is already set, use it.
+2. Otherwise look up `zstyle ':contextual-history:*' <key>`.
+3. Otherwise apply the built-in default.
+
+The plugin reads only the canonical env-var name internally, so the
+hot path stays a plain `$VAR` lookup. Setting via zstyle just
+populates that variable at source time.
+
+### zstyle context
+
+```zsh
+zstyle ':contextual-history:*' use-module       true
+zstyle ':contextual-history:*' refresh-on-nav   true
+zstyle ':contextual-history:*' toggle-key       '^G'
+zstyle ':contextual-history:*' group-by         .histroot .git
+zstyle ':contextual-history:*' group-stops      $HOME
+zstyle ':contextual-history:*' history-base     ~/.directory_history
+zstyle ':contextual-history:*' debug            false
+```
+
+### Mapping table
+
+| Variable | zstyle key | Default | Effect |
+|----|----|----|----|
+| `HISTORY_BASE` | `history-base` | `$HOME/.directory_history` | Base dir for per-context history files. |
+| `HISTORY_START_WITH_GLOBAL` | `start-with-global` | `false` | If `true`, start in global mode rather than context mode. |
+| `CONTEXTUAL_HISTORY_TOGGLE` | `toggle-key` | `^G` | Keybinding to flip between context and global modes. |
+| `CONTEXTUAL_HISTORY_GROUP_BY` | `group-by` | `()` | Ordered marker list for the default resolver (single walk-up). |
+| `CONTEXTUAL_HISTORY_GROUP_STOPS` | `group-stops` | `()` | Walk-up boundary paths. Reaching one without a marker hit fails the search. |
+| `CONTEXTUAL_HISTORY_REFRESH_ON_NAV` | `refresh-on-nav` | `true` | Wrap each history-navigation widget (`up-history`, `down-history`, `history-search-*`, `history-incremental-search-*`, etc.) so it runs `fc -RI` immediately before reading `$history`, picking up cross-shell writes that landed while this shell was idle. Mtime-gated — steady-state cost is one `stat()` per widget invocation. Only meaningful with `SHARE_HISTORY`; otherwise a no-op. |
+| `CONTEXTUAL_HISTORY_USE_MODULE` | `use-module` | `false` | If `true`, prepend `module/` to `$module_path` so the optional native helper loads from the source tree without a system install. |
+| `CONTEXTUAL_HISTORY_DEBUG` | `debug` | `false` | If `true`, the plugin prints `[ch-dbg] ...` lines to stderr at key transitions (mode swap, chpwd, tee fallback). Off by default to avoid prompt noise. |
+| `CONTEXTUAL_HISTORY_REFRESHING_WIDGETS` | `refreshing-widgets` | (full list, see plugin) | Override which widgets get the refresh wrap. Rarely needed. |
 
 ----------------------------------------------------------------------------
 Interaction with SHARE_HISTORY / INC_APPEND_HISTORY
@@ -176,7 +217,8 @@ Two ways to use it once built:
 
 ```zsh
 # Option 1: load from the source tree (no system install).
-CONTEXTUAL_HISTORY_USE_MODULE=true
+zstyle ':contextual-history:*' use-module true
+# Equivalent env-var form: CONTEXTUAL_HISTORY_USE_MODULE=true
 source /path/to/contextual-history.zsh
 
 # Option 2: install into a $module_path location.
@@ -198,7 +240,7 @@ Tests
 
 ```sh
 cd tests
-make                # full PTY suite, both module configs (32 cases)
+make                # full PTY suite, both module configs (34 cases)
 make test           # alias for the above
 make test-no-module # pure-shell only
 make test-with-module

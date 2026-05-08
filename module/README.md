@@ -1,6 +1,6 @@
 # contextual-history — optional native helper module
 
-> **TL;DR**: `make` (auto-fetches zsh source, configures, builds, produces `zsh/contextual_history.{so,bundle}`). Then either `make install` to put it on `$module_path`, or set `CONTEXTUAL_HISTORY_USE_MODULE=true` in your `.zshrc` to use it from this directory.
+> **TL;DR**: `make` (auto-fetches zsh source, configures, builds, produces `zsh/contextual_history.{so,bundle}`). Then either `make install` to put it on `$module_path`, or `zstyle ':contextual-history:*' use-module true` in your `.zshrc` (before sourcing the plugin) to use it from this directory.
 
 This is an optional zsh module that provides a `contextual-history-tee` builtin used
 by the contextual-history plugin's tee path. The plugin works fine
@@ -66,11 +66,13 @@ Or use it from the source tree without installing:
 
 ```zsh
 # In .zshrc, BEFORE sourcing the plugin:
-CONTEXTUAL_HISTORY_USE_MODULE=true
+zstyle ':contextual-history:*' use-module true
 source /path/to/contextual-history.zsh
 ```
 
-`CONTEXTUAL_HISTORY_USE_MODULE=true` makes the plugin prepend `module/` to
+(Equivalent env-var form: `CONTEXTUAL_HISTORY_USE_MODULE=true`.)
+
+Setting `use-module` makes the plugin prepend `module/` to
 `$module_path` so the locally-built `.so`/`.bundle` is discoverable.
 
 ## Verification
