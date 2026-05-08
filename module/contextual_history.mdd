@@ -1,0 +1,7 @@
+name=zsh/contextual_history
+link=dynamic
+load=no
+
+autobins="contextual-history-tee"
+
+objects="contextual_history.o"

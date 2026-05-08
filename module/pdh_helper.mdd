@@ -1,7 +1,0 @@
-name=zsh/pdh
-link=dynamic
-load=no
-
-autobins="pdh-tee"
-
-objects="pdh_helper.o"
