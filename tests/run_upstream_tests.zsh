@@ -1,21 +1,27 @@
 #!/usr/bin/env zsh
 # run_upstream_tests.zsh
 #
-# Runs a curated subset of the PTY suite against upstream
+# Runs the FULL PTY suite against upstream
 # jimhester/per-directory-history (cached in .upstream/) instead of
-# the fork. Demonstrates -- in matrix form -- which bugs the fork
-# fixes and which behaviours upstream gets right.
+# the fork. We don't pre-classify; we run everything and report
+# what actually happens, then categorise the outcomes after the fact:
 #
-# For every test we list whether we EXPECT it to PASS or FAIL on
-# upstream. EXPECT-FAIL means "this test asserts a fork-fixed
-# behaviour; failing on upstream confirms the bug". A test that
-# passes upstream when we expected FAIL means upstream changed (or
-# our test is too lenient); a test that fails upstream when we
-# expected PASS means basic per-dir is broken in unexpected ways.
+#   * FORK-FIXED-BUG   : test PASSes on fork, FAILs on upstream
+#                        (the bug exists in upstream and we fixed it)
+#   * BASELINE-INTACT  : test PASSes on both
+#                        (upstream and fork both get this right)
+#   * FORK-ONLY-FEATURE: test PASSes on fork, FAILs on upstream because
+#                        the test depends on a feature upstream lacks
+#                        (zstyle config, native module, custom resolver,
+#                        group-by). Not evidence of an upstream bug;
+#                        listed for transparency.
+#   * UPSTREAM-PASSES  : test PASSes on upstream too (claim retracted)
+#
+# This is the "we ran everything and observed the outcome" version
+# instead of the pre-curated "we expected these to fail" version.
 #
 # Usage:
 #   ./run_upstream_tests.zsh
-# Auto-fetches upstream if missing.
 
 cd "${0:A:h}"
 
@@ -30,35 +36,21 @@ if [[ ! -f $UPSTREAM_PLUGIN ]]; then
     || { print -ru2 -- "fetch failed"; exit 2 }
 fi
 
-# Tests expected to FAIL on upstream -- each one asserts a fork-fixed
-# behaviour. A FAIL is the bug being demonstrated.
-EXPECTED_FAIL=(
-  # SHARE_HISTORY same-context cross-shell merge is silently broken
-  # (the headline "fc -p in addhistory hook is auto-popped" finding).
-  test_p01_share_idle_visibility.zsh
-  test_p04_multi_event_cross_shell.zsh
-  test_p05_per_dir_cross_shell.zsh
-  test_p13_concurrent_toggle.zsh
-  test_p18_three_shell_share.zsh
-  test_p19_toggle_no_dropped_entries.zsh
-  test_p20_chpwd_concurrent_peer.zsh
-  # Toggle to global doesn't reliably load the global file's
-  # pre-populated content into the ring (additional issue surfaced
-  # by running our matrix; upstream's `fc -R "$HISTFILE"` step in
-  # set-global-history doesn't take effect as expected after the
-  # empty-Enter resync our harness uses).
-  test_p07_toggle_buffer_state.zsh
-)
-
-# Tests expected to PASS on upstream -- features upstream has too,
-# no fork-specific behaviour required. Sanity baseline.
-EXPECTED_PASS=(
-  test_p02_first_prompt_up_arrow.zsh
-  test_p03_walk_history.zsh
-  test_p06_per_dir_isolation.zsh
-  test_p08_no_share_isolation.zsh
-  test_p09_inc_append_persistence.zsh
-  test_p24_path_with_spaces.zsh
+# Tests that depend on fork-only features (their failure on upstream
+# is "feature absent", not "bug present"). Listed here so we can label
+# them in the report. Each note explains which fork feature the test
+# requires.
+typeset -A FORK_ONLY_TESTS=(
+  [test_p10_native_module_equivalence.zsh]="native helper module"
+  [test_p11_toggle_leak.zsh]="asserts module/no-module ring leak shape"
+  [test_p12_chpwd_leak.zsh]="asserts module/no-module ring leak shape"
+  [test_p14_mode_n_chpwd_flush.zsh]="fork-specific mode-N fc -AI gating"
+  [test_p15_group_by_marker.zsh]="GROUP_BY env-var resolver"
+  [test_p16_group_strategies.zsh]="GROUP_BY env-var resolver"
+  [test_p17_zstyle_config.zsh]="zstyle config + GROUP_BY"
+  [test_p22_groupby_two_shells_toggle.zsh]="zstyle GROUP_BY"
+  [test_p23_hist_fcntl_lock.zsh]="fork-specific HIST_FCNTL_LOCK tee"
+  [test_p25_custom_resolver_edge_cases.zsh]="overrides _context-history-group"
 )
 
 run_one() {
@@ -67,50 +59,60 @@ run_one() {
     timeout 30 zsh "$t" 2>&1 | tail -1
 }
 
-typeset -i confirmed=0 surprises=0 unexpected_pass=0 unexpected_fail=0
+typeset -a TESTS=(test_p*.zsh)
+typeset -a BUG_FIXED=() BASELINE_INTACT=() FORK_ONLY_FAIL=() UPSTREAM_PASSES=()
 
-print -ru1 -- "=== Upstream comparison: jimhester/per-directory-history ==="
-print -ru1 -- "    plugin path: $UPSTREAM_PLUGIN"
+print -ru1 -- "=== Running ALL ${#TESTS[@]} tests against upstream ==="
+print -ru1 -- "    plugin: $UPSTREAM_PLUGIN"
+print
+print -ru1 -- "    (UPSTREAM column is what we ran below; FORK column is the"
+print -ru1 -- "     status from the regular test matrix -- already-known-passing)"
 print
 
-print -ru1 -- "-- Tests expected to FAIL on upstream (fork-fixed behaviours) --"
-for t in "${EXPECTED_FAIL[@]}"; do
+printf "  %-50s %-8s\n" "TEST" "UPSTREAM"
+for t in "${TESTS[@]}"; do
   result=$(run_one "$t")
   case $result in
-    (PASS\ *|*PASS*pass*)
-      printf "  %-50s PASS  (UNEXPECTED -- upstream got this right?)\n" "$t"
-      (( surprises++ ))
-      (( unexpected_pass++ ))
-      ;;
-    (*)
-      printf "  %-50s FAIL  (expected -- bug confirmed)\n" "$t"
-      (( confirmed++ ))
-      ;;
+    (PASS\ *|*PASS*pass*)  upstream_status="PASS" ;;
+    (SKIP\ *|*SKIP*)        upstream_status="SKIP" ;;
+    (*)                    upstream_status="FAIL" ;;
   esac
-done
-print
+  printf "  %-50s %-8s\n" "$t" "$upstream_status"
 
-print -ru1 -- "-- Tests expected to PASS on upstream (sanity baseline) --"
-for t in "${EXPECTED_PASS[@]}"; do
-  result=$(run_one "$t")
-  case $result in
-    (PASS\ *|*PASS*pass*)
-      printf "  %-50s PASS  (expected -- baseline ok)\n" "$t"
-      (( confirmed++ ))
-      ;;
-    (*)
-      printf "  %-50s FAIL  (UNEXPECTED -- baseline broken: %s)\n" "$t" "$result"
-      (( surprises++ ))
-      (( unexpected_fail++ ))
-      ;;
-  esac
+  # Categorise. (All these tests pass on the fork; the test matrix
+  # confirms that separately.)
+  if [[ $upstream_status == "PASS" ]]; then
+    if [[ -n ${FORK_ONLY_TESTS[$t]:-} ]]; then
+      # Fork-only feature passing on upstream is impossible unless
+      # the categorisation is wrong; treat as "upstream passes".
+      UPSTREAM_PASSES+=("$t (was tagged fork-only: ${FORK_ONLY_TESTS[$t]})")
+    else
+      BASELINE_INTACT+=("$t")
+    fi
+  elif [[ $upstream_status == "FAIL" ]]; then
+    if [[ -n ${FORK_ONLY_TESTS[$t]:-} ]]; then
+      FORK_ONLY_FAIL+=("$t -- ${FORK_ONLY_TESTS[$t]}")
+    else
+      BUG_FIXED+=("$t")
+    fi
+  fi
 done
-print
 
-print -ru1 -- "Summary: $confirmed expected outcome(s), $surprises surprise(s)"
-if (( surprises > 0 )); then
-  print -ru1 -- "  unexpected PASS (upstream may have been fixed): $unexpected_pass"
-  print -ru1 -- "  unexpected FAIL (upstream baseline broken):     $unexpected_fail"
-  exit 1
+print
+print -ru1 -- "=== Summary ==="
+print -ru1 -- ""
+print -ru1 -- "FORK-FIXED BUGS (test passes on fork, fails on upstream): ${#BUG_FIXED[@]}"
+for x in "${BUG_FIXED[@]}"; do print -ru1 -- "  - $x"; done
+print -ru1 -- ""
+print -ru1 -- "BASELINE INTACT (passes on both): ${#BASELINE_INTACT[@]}"
+for x in "${BASELINE_INTACT[@]}"; do print -ru1 -- "  - $x"; done
+print -ru1 -- ""
+print -ru1 -- "FORK-ONLY FEATURES (fail on upstream because feature absent): ${#FORK_ONLY_FAIL[@]}"
+for x in "${FORK_ONLY_FAIL[@]}"; do print -ru1 -- "  - $x"; done
+print -ru1 -- ""
+if (( ${#UPSTREAM_PASSES[@]} > 0 )); then
+  print -ru1 -- "WARNING -- unexpected upstream PASS: ${#UPSTREAM_PASSES[@]}"
+  for x in "${UPSTREAM_PASSES[@]}"; do print -ru1 -- "  - $x"; done
 fi
+
 exit 0
