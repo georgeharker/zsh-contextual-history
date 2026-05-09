@@ -23,9 +23,11 @@ context-history and global-history), and adds:
 - A scenario-based test matrix that exercises both pure-shell and
   native-module paths against `SHARE` / `INC_APPEND` / both / neither
 
-Status: 17 PTY scenarios, run under both pure-shell and native-module
-paths — 34/34 green when the module is built, 17/17 + 17 skips when it
-isn't.
+Status: 22 PTY scenarios, run under both pure-shell and native-module
+paths — 44/44 green when the module is built, 22/22 + 22 skips when it
+isn't. Coverage spans single-shell flow, two-shell SHARE/INC, three-shell
+late-join, repeated mode toggles, chpwd with concurrent peer reader,
+and group-by × multi-shell × toggle interactions.
 
 [upstream]: https://github.com/jimhester/per-directory-history
 [modr]: module/README.md
@@ -240,7 +242,7 @@ Tests
 
 ```sh
 cd tests
-make                # full PTY suite, both module configs (34 cases)
+make                # full PTY suite, both module configs (44 cases)
 make test           # alias for the above
 make test-no-module # pure-shell only
 make test-with-module
