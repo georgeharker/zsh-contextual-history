@@ -5,9 +5,11 @@ PTY-based interactive scenario tests for `contextual-history.zsh`.
 ## Quickstart
 
 ```sh
-make            # run the full PTY suite (recommended)
-make test       # alias for the above
-make clean      # remove transient artifacts
+make                # run the full PTY suite (recommended)
+make test           # alias for the above
+make test-upstream  # curated subset against jimhester's upstream
+                    # plugin -- proves which bugs the fork fixes
+make clean          # remove transient artifacts
 ```
 
 Or run individual tests directly:
@@ -21,16 +23,25 @@ The runner runs every `test_p*.zsh` under both
 (native helper builtin). The with-module pass is skipped if the
 module hasn't been built.
 
+`make test-upstream` auto-fetches the upstream plugin into `.upstream/`
+on first run, then runs a hand-picked subset of `test_p*.zsh` against
+it. Tests are classified as expected-FAIL (a fork-fixed bug, where a
+FAIL on upstream confirms the bug) or expected-PASS (baseline
+behaviour upstream gets right). The runner exits non-zero only on
+unexpected outcomes.
+
 ## Layout
 
 ```
 tests/
-├── Makefile               (test entry points)
-├── README.md              (this file)
-├── run_pty_tests.zsh      (runner: every test_p*.zsh x both module configs)
+├── Makefile                (test entry points)
+├── README.md               (this file)
+├── run_pty_tests.zsh       (runner: every test_p*.zsh x both module configs)
+├── run_upstream_tests.zsh  (runner: curated subset vs. upstream plugin)
 ├── lib/
-│   └── pty_harness.zsh    (zpty-based PTY harness library)
-└── test_p<NN>_<name>.zsh  (per-scenario test files)
+│   └── pty_harness.zsh     (zpty-based PTY harness library)
+├── .upstream/              (gitignored; populated on `make test-upstream`)
+└── test_p<NN>_<name>.zsh   (per-scenario test files)
 ```
 
 ## How the harness works

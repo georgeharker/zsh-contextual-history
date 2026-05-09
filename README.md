@@ -248,6 +248,10 @@ make                # full PTY suite, both module configs (50 cases)
 make test           # alias for the above
 make test-no-module # pure-shell only
 make test-with-module
+make test-upstream  # curated subset run against jimhester's upstream
+                    # plugin (auto-fetched into .upstream/) -- documents
+                    # which bugs the fork fixes by showing them failing
+                    # on upstream vs. passing on the fork
 ```
 
 The matrix runs every `test_p*.zsh` under both
