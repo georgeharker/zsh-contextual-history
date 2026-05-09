@@ -281,7 +281,18 @@ function _context-history-group() {
 # Centralised so chpwd, precmd init, and any future entry points use the
 # same logic.
 function _context-history-resolve-file() {
-  _context_history_directory="$HISTORY_BASE$(_context-history-group)/history"
+  # Normalize the join so the result is well-formed regardless of
+  # whether HISTORY_BASE has a trailing slash, or the resolver's key
+  # has a leading slash, or the key is empty (which legitimately means
+  # "all dirs collapse to one file").
+  local key=$(_context-history-group)
+  local base=${HISTORY_BASE%/}
+  key=${key#/}
+  if [[ -z $key ]]; then
+    _context_history_directory="$base/history"
+  else
+    _context_history_directory="$base/$key/history"
+  fi
 }
 
 #-------------------------------------------------------------------------------

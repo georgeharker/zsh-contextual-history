@@ -101,6 +101,9 @@ values.
 | **p20** | chpwd with concurrent peer reader — A `cd`s out of dirA while B reads dirA's per-dir; B's view stays correct and never sees A's post-cd writes from the new directory's per-dir |
 | **p21** | Repeated-toggle survival — five full toggle cycles (10 mode switches) with a write per phase; both stores must contain every expected entry in chronological order |
 | **p22** | Group-by + two shells + toggle — two shells in different subdirs of the same `.git` project share the project-root per-dir via zstyle group-by; one toggling to global doesn't break the other's view |
+| **p23** | `HIST_FCNTL_LOCK` path — two shells write rapidly into the same per-dir context with fcntl locking; all entries land in both stores in well-formed extended-history shape, no truncation |
+| **p24** | Per-dir path with spaces and shell-significant characters — cd into an awkward path, write, verify per-dir file at expected path; cross-shell SHARE merge works across the awkward path |
+| **p25** | Custom resolver edge cases — empty-string key collapses all dirs to a single shared file; whitespace-containing key works end-to-end with cross-shell SHARE merge. Surfaced and fixed a `HISTORY_BASE` × resolver-key path-join bug |
 
 ## Adding a new test
 
