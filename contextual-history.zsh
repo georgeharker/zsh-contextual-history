@@ -114,13 +114,11 @@
 
 # zsh modules used throughout. Group at the top so it's clear what
 # external machinery we depend on.
-zmodload -F zsh/datetime b:strftime p:EPOCHSECONDS 2>/dev/null
-zmodload -F zsh/stat b:zstat 2>/dev/null
-zmodload -F zsh/files b:ln 2>/dev/null   # builtin ln avoids fork(2) per tee
-zmodload zsh/system 2>/dev/null          # provides zsystem flock (fcntl)
+zmodload -F zsh/datetime b:strftime p:EPOCHSECONDS
+zmodload -F zsh/stat b:zstat
+zmodload -F zsh/files b:ln   # builtin ln avoids fork(2) per tee
+zmodload zsh/system          # provides zsystem flock (fcntl)
 
-# Debug helper. Used liberally inside hooks and widgets but only emits
-# when explicitly enabled, so default cost is one branch.
 _ch_dbg() {
   [[ $CONTEXTUAL_HISTORY_DEBUG == true ]] && print -ru2 -- "[ch-dbg] $*"
 }
@@ -129,23 +127,10 @@ _ch_dbg() {
 # configuration
 #-------------------------------------------------------------------------------
 #
-# Two-step resolution per setting (env var > zstyle > default):
-#   1. If the variable is already set in the environment, respect it.
-#   2. Otherwise look up zstyle ':contextual-history:*' <key>.
-#   3. Otherwise apply the built-in default.
-#
-# The plugin reads only the canonical env-var-style variable internally,
-# so the hot path stays a plain `$VAR` lookup. Helpers below populate
-# the variables once at source time.
-#
-# zstyle context: `:contextual-history:*`
-# Example .zshrc:
-#   zstyle ':contextual-history:*' use-module true
-#   zstyle ':contextual-history:*' group-by .histroot .git
-#   zstyle ':contextual-history:*' group-stops $HOME
+# See the resolution table at the top of this file. The plugin reads
+# only the canonical env-var-style variable internally, so the hot path
+# stays a plain `$VAR` lookup.
 
-# Scalar resolver. Sets <varname> if not already set, preferring zstyle
-# value at <key>, falling back to <default>.
 _ch_resolve() {
   local varname=$1 key=$2 default=$3 val
   [[ -n ${(P)varname} ]] && return 0
@@ -163,11 +148,10 @@ _ch_resolve_arr() {
   local varname=$1 key=$2; shift 2
   [[ -n ${(P)varname} ]] && return 0
   local -a result
+  typeset -ga "$varname"
   if zstyle -a ':contextual-history:*' "$key" result; then
-    typeset -ga "$varname"
     set -A "$varname" "${result[@]}"
   else
-    typeset -ga "$varname"
     set -A "$varname" "$@"
   fi
 }
@@ -240,9 +224,6 @@ _ch_resolve_arr CONTEXTUAL_HISTORY_GROUP_STOPS group-stops
 #     print -r -- "$pwd"
 #   }
 
-# Walk up from $PWD looking for any of the named markers. Print the first
-# ancestor that contains any one of them, return 0. If walk-up reaches a
-# stop point or / without a hit, return 1.
 function _context-history-walk-up() {
   local d=${PWD:A}
   local target stop
@@ -253,7 +234,6 @@ function _context-history-walk-up() {
         return 0
       fi
     done
-    # Stop if THIS dir is a stop point (don't walk above stop points).
     for stop in "${CONTEXTUAL_HISTORY_GROUP_STOPS[@]}"; do
       if [[ $d == "${stop:A}" ]]; then
         return 1
@@ -264,8 +244,6 @@ function _context-history-walk-up() {
   return 1
 }
 
-# Default resolver. Single walk-up across all GROUP_BY markers; closest
-# ancestor wins. Falls back to ${PWD:A} if no marker is found.
 function _context-history-group() {
   if (( ${#CONTEXTUAL_HISTORY_GROUP_BY} > 0 )); then
     local result
@@ -277,9 +255,6 @@ function _context-history-group() {
   print -r -- "${PWD:A}"
 }
 
-# Compute the per-dir history file path from the resolver's group key.
-# Centralised so chpwd, precmd init, and any future entry points use the
-# same logic.
 function _context-history-resolve-file() {
   # Normalize the join so the result is well-formed regardless of
   # whether HISTORY_BASE has a trailing slash, or the resolver's key
@@ -313,7 +288,6 @@ function context-history-toggle-history() {
   fi
 }
 
-autoload context-history-toggle-history
 zle -N context-history-toggle-history
 bindkey "$CONTEXTUAL_HISTORY_TOGGLE" context-history-toggle-history
 bindkey -M vicmd "$CONTEXTUAL_HISTORY_TOGGLE" context-history-toggle-history
@@ -385,9 +359,8 @@ function _context-history-change-directory() {
 # the pure-shell paths below; behaviour is the same modulo the multi-write-
 # syscall race that the native lock closes (rare; see module/README.md).
 #
-# zmodload of a missing module aborts the calling source/script (returns
-# 126), even with stderr redirected. We probe the filesystem first so we
-# only attempt to load when there's actually something to find.
+# We probe the filesystem first so a missing module stays silent on the
+# stderr that some users keep clean.
 #
 # If CONTEXTUAL_HISTORY_USE_MODULE=true we prepend this plugin's `module/` dir
 # to $module_path first, so a make-built .so/.bundle from the source tree
@@ -428,9 +401,8 @@ function _context-history-tee-acquire-symlink-lock() {
   # checklocktime() (line 3120). Returns 0 on acquire, 1 on timeout.
   local lockfile="$1"
   local lnk_target="/pid-$$/host-${HOST:-localhost}"
-  local now end_time lock_mtime=""
-  now=${EPOCHSECONDS:-$(date +%s)}
-  end_time=$(( now + 10 ))
+  local end_time=$(( EPOCHSECONDS + 10 ))
+  local lock_mtime=""
 
   while true; do
     if ln -s "$lnk_target" "$lockfile" 2>/dev/null; then
@@ -441,13 +413,12 @@ function _context-history-tee-acquire-symlink-lock() {
     if [[ -z $lock_mtime ]]; then
       continue   # lock disappeared between symlink and stat
     fi
-    now=${EPOCHSECONDS:-$(date +%s)}
-    if (( now - lock_mtime > 10 )); then
+    if (( EPOCHSECONDS - lock_mtime > 10 )); then
       # Stale - clean up. Race-tolerant: other processes may also unlink.
       rm -f "$lockfile" 2>/dev/null
       continue
     fi
-    if (( now >= end_time )); then
+    if (( EPOCHSECONDS >= end_time )); then
       return 1
     fi
     sleep 0.05
@@ -469,13 +440,15 @@ function _context-history-addhistory() {
   else
     file="$_context_history_global_histfile"
   fi
-  mkdir -p "${file:h}" 2>/dev/null
 
   # Fast path: optional native helper handles lock + append + extended
-  # format internally using zsh's own lockhistfile/unlockhistfile.
+  # format internally using zsh's own lockhistfile/unlockhistfile. On
+  # non-zero return, fall through to the pure-shell path rather than
+  # silently drop the entry.
   if [[ $_context_history_have_native_tee == true ]]; then
-    contextual-history-tee "$file" "$cmd" 2>/dev/null
-    return 0
+    if contextual-history-tee "$file" "$cmd"; then
+      return 0
+    fi
   fi
 
   # Pure-shell path: write extended format manually under a manually-acquired
@@ -484,31 +457,23 @@ function _context-history-addhistory() {
   # (Src/hist.c savehistfile, near `if (isset(SHAREHISTORY)) extended_history = 1`).
   # We treat EXTENDED_HISTORY as display-only and always store extended on
   # disk so the file format matches what stock zsh writers produce.
-  local ts="${EPOCHSECONDS:-$(date +%s)}"
-  local payload
-  payload=$(printf ': %d:0;%s\n' "$ts" "$cmd")
-
+  #
   # Acquire the same lock zsh's lockhistfile uses, picking protocol from
   # HIST_FCNTL_LOCK. On timeout we proceed lock-free rather than drop the
   # entry - single-line single-syscall O_APPEND writes are still
   # kernel-atomic, and losing a tee'd entry is strictly worse.
+  local locked=0 lock_fd= lockfile=
   if [[ -o hist_fcntl_lock ]]; then
-    local lock_fd=
-    if zsystem flock -t 10 -f lock_fd "$file" 2>/dev/null; then
-      print -r -- "$payload" >> "$file"
-      zsystem flock -u $lock_fd 2>/dev/null
-    else
-      print -r -- "$payload" >> "$file"
-    fi
+    zsystem flock -t 10 -f lock_fd "$file" 2>/dev/null && locked=1
   else
-    local lockfile="$file.LOCK"
-    if _context-history-tee-acquire-symlink-lock "$lockfile"; then
-      print -r -- "$payload" >> "$file"
-      rm -f "$lockfile" 2>/dev/null
-    else
-      print -r -- "$payload" >> "$file"
-    fi
+    lockfile="$file.LOCK"
+    _context-history-tee-acquire-symlink-lock "$lockfile" && locked=2
   fi
+  printf ': %d:0;%s\n' "$EPOCHSECONDS" "$cmd" >> "$file"
+  case $locked in
+    1) zsystem flock -u "$lock_fd" 2>/dev/null ;;
+    2) rm -f "$lockfile" 2>/dev/null ;;
+  esac
   return 0
 }
 
@@ -628,9 +593,6 @@ function _context-history-set-global-history() {
   _context-history-replace-ring "$HISTFILE"
 }
 
-mkdir -p "${_context_history_directory:h}" 2>/dev/null
-
-#add functions to the exec list for chpwd and zshaddhistory
 autoload -U add-zsh-hook
 add-zsh-hook chpwd _context-history-change-directory
 add-zsh-hook zshaddhistory _context-history-addhistory
@@ -696,8 +658,6 @@ function _context-history-refresh-impl() {
 #                        another plugin).
 typeset -gA _context_history_orig_widgets
 
-# Wrapper widget: refresh, then delegate to the original. Returns the
-# original widget's exit status verbatim.
 function _context-history-refreshing-widget() {
   local target=${_context_history_orig_widgets[$WIDGET]:-}
   _ch_dbg "widget $WIDGET -> $target (pre: HISTNO=$HISTNO)"
@@ -735,11 +695,12 @@ _ch_resolve_arr CONTEXTUAL_HISTORY_REFRESHING_WIDGETS refreshing-widgets \
   history-beginning-search-backward history-beginning-search-forward \
   history-incremental-search-backward history-incremental-search-forward
 
-# Re-apply the wrap on each precmd. Idempotent: if our wrapper is
-# already in place for a widget, skip it. If another plugin has wrapped
-# AFTER us, the widget's `widgets[]` entry now points at their function -
-# we capture that as the new "user:funcname" original and our wrapper
-# layers on top of theirs.
+# Apply the wrap. Called once on first precmd; safe to call again from
+# user code after deferred plugin loads (zsh-defer etc.) that re-bind
+# these widgets after our initial pass. Idempotent: if our wrapper is
+# already in place for a widget, skip. If another plugin has wrapped
+# AFTER us, we capture their function as the new "user:funcname"
+# original and layer on top.
 function _context-history-ensure-widget-wrap() {
   local widget current
   _ch_dbg "ensure-widget-wrap: scanning ${#CONTEXTUAL_HISTORY_REFRESHING_WIDGETS[@]} widgets"
@@ -753,17 +714,11 @@ function _context-history-ensure-widget-wrap() {
         _ch_dbg "  $widget: already wrapped - skip"
         ;;
       "builtin")
-        # Use the canonical immortal `.X` thingy zsh installs for every
-        # builtin (Src/Zle/zle_thingy.c addzlefunction). The dot-prefix
-        # always reaches the builtin even after `zle -N X` overrides X.
         _ch_dbg "  $widget: builtin - dispatch via zle .$widget"
         _context_history_orig_widgets[$widget]=".${widget}"
         zle -N "$widget" _context-history-refreshing-widget
         ;;
       "user:"*)
-        # Call the underlying function directly (no nested `zle -N`
-        # round-trip). If another plugin later overrides $widget via
-        # `zle -N`, our dispatch via the function name is unaffected.
         _ch_dbg "  $widget: $current - call function directly"
         _context_history_orig_widgets[$widget]="$current"
         zle -N "$widget" _context-history-refreshing-widget
@@ -775,5 +730,4 @@ function _context-history-ensure-widget-wrap() {
   done
 }
 
-# set initialized flag to false
 _context_history_initialized=false
