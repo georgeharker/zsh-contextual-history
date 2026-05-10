@@ -342,7 +342,7 @@ _context-history-resolve-file
 # pure-shell ring replacement, which has a documented 2-entry leak
 # (test_p11 / test_p12). The pre-init path avoids that corruption on
 # first prompt.
-mkdir -p "${_context_history_directory:h}"
+mkdir -p "${_context_history_directory:h}" 2>/dev/null
 if [[ ${HISTORY_START_WITH_GLOBAL:-false} == true ]]; then
   _context_history_is_global=true
 else
@@ -352,7 +352,7 @@ fi
 
 function _context-history-change-directory() {
   _context-history-resolve-file
-  mkdir -p "${_context_history_directory:h}"
+  mkdir -p "${_context_history_directory:h}" 2>/dev/null
   if [[ $_context_history_is_global == false ]]; then
     _context-history-set-directory-history
   fi
@@ -469,7 +469,7 @@ function _context-history-addhistory() {
   else
     file="$_context_history_global_histfile"
   fi
-  mkdir -p "${file:h}"
+  mkdir -p "${file:h}" 2>/dev/null
 
   # Fast path: optional native helper handles lock + append + extended
   # format internally using zsh's own lockhistfile/unlockhistfile.
@@ -628,7 +628,7 @@ function _context-history-set-global-history() {
   _context-history-replace-ring "$HISTFILE"
 }
 
-mkdir -p "${_context_history_directory:h}"
+mkdir -p "${_context_history_directory:h}" 2>/dev/null
 
 #add functions to the exec list for chpwd and zshaddhistory
 autoload -U add-zsh-hook
