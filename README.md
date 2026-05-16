@@ -228,6 +228,14 @@ make                              # auto-fetch zsh source matching $ZSH_VERSION,
                                   # ./configure, build, produce zsh/contextual_history.{so,bundle}
 ```
 
+Or, after sourcing the plugin, build from inside zsh:
+
+```zsh
+contextual-history-build-module           # equivalent to `cd <plugin>/module && make`
+contextual-history-build-module install   # forwards args, e.g. `make install`
+contextual-history-build-module clean
+```
+
 Two ways to use it once built:
 
 ```zsh

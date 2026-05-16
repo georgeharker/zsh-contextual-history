@@ -220,6 +220,12 @@ _ch_resolve_arr CONTEXTUAL_HISTORY_GROUP_STOPS group-stops
 typeset -gA _context_history_local_writes
 typeset -gA _context_history_local_texts
 
+# Captured at plugin source time. ${(%):-%x} evaluates to the path of
+# the currently-being-sourced file; locking it into a global so
+# helpers defined here can refer to the plugin dir regardless of
+# where they're invoked from.
+typeset -g _context_history_plugin_dir=${${(%):-%x}:A:h}
+
 #-------------------------------------------------------------------------------
 # Directory grouping
 #-------------------------------------------------------------------------------
@@ -434,6 +440,22 @@ typeset -g _context_history_have_native_fast_refresh=false
       _context_history_have_native_fast_refresh=true
     fi
   fi
+}
+
+# Convenience helper: build the optional native module from inside
+# zsh. Equivalent to `cd <plugin>/module && make "$@"`. Forwards args
+# so users can do e.g. `contextual-history-build-module clean` or
+# `... install`. Doesn't auto-load the built module - that takes a
+# fresh shell (or manual zmodload).
+function contextual-history-build-module() {
+  emulate -L zsh
+  local module_dir="$_context_history_plugin_dir/module"
+  if [[ ! -f $module_dir/Makefile ]]; then
+    print -ru2 -- "contextual-history-build-module: no Makefile at $module_dir"
+    return 1
+  fi
+  print -ru2 -- "contextual-history-build-module: building in $module_dir"
+  ( cd "$module_dir" && make "$@" )
 }
 
 function _context-history-tee-acquire-symlink-lock() {
