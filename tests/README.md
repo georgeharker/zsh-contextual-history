@@ -103,7 +103,7 @@ values.
 | **p11** | Toggle between modes documents the 2-entry leak inherent to `HISTSIZE=2; fc -R` ring replacement |
 | **p12** | chpwd swap documents the same 2-entry leak (`hend` writes the cd command to the OLD per-dir file before chpwd swaps) |
 | **p13** | Concurrent toggle — shellA toggles modes mid-session while shellB stays in dir mode and observes via the tee |
-| **p14** | Mode-N (no SHARE/INC) chpwd flush via `fc -AI` writes in-memory ring to outgoing dir's file before swap |
+| **p14** | shell-exit-mode (no SHARE/INC) chpwd flush via `fc -AI` writes in-memory ring to outgoing dir's file before swap |
 | **p15** | `CONTEXTUAL_HISTORY_GROUP_BY=(.git)` resolver walks up to project root |
 | **p16** | `GROUP_BY` "closest ancestor with any marker wins" — pattern order doesn't matter when ancestors at different depths each have a different marker |
 | **p17** | `zstyle ':contextual-history:*' group-by .git` — config via zstyle (no env var) takes effect at plugin source time; verifies the env-var > zstyle > default precedence chain |

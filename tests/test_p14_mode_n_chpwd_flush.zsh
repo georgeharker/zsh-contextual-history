@@ -1,19 +1,19 @@
 #!/usr/bin/env zsh
 # test_p14_mode_n_chpwd_flush
 #
-# Validates: in "mode N" (no SHARE_HISTORY, no INC_APPEND_HISTORY),
+# Validates: in "shell-exit mode" (no SHARE_HISTORY, no INC_APPEND_HISTORY),
 # zsh does not write history to disk during the session - only on
-# shell exit. The plugin's `_context-history-flush-if-mode-N` hook
+# shell exit. The plugin's `_context-history-flush-if-shell-exit` hook
 # (called from set-{global,directory}-history) compensates by
 # running `fc -AI` on the OUTGOING context's HISTFILE before any
 # chpwd-driven swap, so commands typed in dirA aren't lost when the
 # user `cd`s away to dirB.
 #
 # Sequence:
-#   t0: shellA spawn in mode N (no SHARE, no INC).
+#   t0: shellA spawn in shell-exit mode (no SHARE, no INC).
 #   t1: cd to dirA.
-#   t2: run 'echo dirA-cmd' (in memory only - mode N doesn't auto-write).
-#   t3: cd to dirB. The plugin's flush-if-mode-N should fc -AI dirA's
+#   t2: run 'echo dirA-cmd' (in memory only - shell-exit mode doesn't auto-write).
+#   t3: cd to dirB. The plugin's flush-if-shell-exit should fc -AI dirA's
 #       per-dir file with 'echo dirA-cmd' before the chpwd swap.
 #   t4: cd back to dirA. Per-dir A's file should now contain dirA-cmd.
 #   t5: ^P -> expect 'echo dirA-cmd' (loaded from disk).
@@ -25,19 +25,19 @@ DIRA=$(mktemp -d -t ch-pty-p14-dirA.XXXXXX)
 DIRB=$(mktemp -d -t ch-pty-p14-dirB.XXXXXX)
 trap "pty_cleanup_all; rm -rf $HISTROOT $DIRA $DIRB" EXIT
 
-# Mode N: no TEST_SHARE_HISTORY, no TEST_INC_APPEND.
+# shell-exit mode: no TEST_SHARE_HISTORY, no TEST_INC_APPEND.
 pty_spawn shellA "$HISTROOT" || pty_fail "could not spawn shellA"
 
 pty_run_cmd shellA "cd $DIRA" || pty_fail "cd dirA failed"
 pty_run_cmd shellA 'echo dirA-cmd' || pty_fail "dirA-cmd failed"
 
-# Verify per-dir A file does NOT YET exist or is empty (mode N hasn't
+# Verify per-dir A file does NOT YET exist or is empty (shell-exit mode hasn't
 # written to disk on its own). Plugin's tee may have written though -
 # it's enabled for all modes.
 DIRA_REAL=${DIRA:A}
 PERDIR_A="$HISTROOT/dirhist${DIRA_REAL}/history"
 
-# cd dirB triggers chpwd, which triggers _context-history-flush-if-mode-N
+# cd dirB triggers chpwd, which triggers _context-history-flush-if-shell-exit
 # on the OUTGOING dirA context, which fc -AI's the in-memory ring to
 # dirA's per-dir file.
 pty_run_cmd shellA "cd $DIRB" || pty_fail "cd dirB failed"

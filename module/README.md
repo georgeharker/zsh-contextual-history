@@ -2,21 +2,43 @@
 
 > **TL;DR**: `make` (auto-fetches zsh source, configures, builds, produces `zsh/contextual_history.{so,bundle}`). Then either `make install` to put it on `$module_path`, or `zstyle ':contextual-history:*' use-module true` in your `.zshrc` (before sourcing the plugin) to use it from this directory.
 
-This is an optional zsh module that provides a `contextual-history-tee` builtin used
-by the contextual-history plugin's tee path. The plugin works fine
-without it (falls back to a portable pure-shell implementation);
-building and installing this module replaces the manual lock + printf
-with native zsh primitives:
+This is an optional zsh module that provides three builtins used by
+the contextual-history plugin. The plugin works fine without it
+(falls back to portable pure-shell implementations); building and
+installing this module replaces the manual implementations with
+direct calls into zsh's own internals:
 
-- `lockhistfile` / `unlockhistfile` from `Src/hist.c` — automatically
-  matches zsh's choice of lock protocol (`HIST_FCNTL_LOCK` on → fcntl,
-  default → `<file>.LOCK` symlink).
-- `unmeta` for path metafication, matching zsh's internal conventions.
+- `contextual-history-tee <file> <command>` — append one extended-format
+  line to `<file>` while holding zsh's own `lockhistfile` lock.
+  Automatically matches zsh's choice of lock protocol
+  (`HIST_FCNTL_LOCK` on → fcntl, default → `<file>.LOCK` symlink).
+- `contextual-history-replace-ring <file>` — clean in-memory ring
+  replacement that avoids the 2-entry leak inherent to the
+  `HISTSIZE=2; fc -R` pure-shell pattern (zsh's `histsizesetfn`
+  clamps `histsiz` at 2).
+- `contextual-history-fast-refresh <file>` — incremental merge from
+  `<file>` that sets `HIST_FOREIGN` on newly loaded entries. Same
+  flag set zsh's own `SHARE_HISTORY` hend-merge uses
+  (`HFILE_USE_OPTIONS | HFILE_FAST`), plus `HFILE_SKIPOLD` for
+  histtab-based dedup against entries already in the ring. The
+  pure-shell fallback is `fc -RI`, which uses `HFILE_SKIPOLD`
+  without `HFILE_FAST` and therefore does NOT set `HIST_FOREIGN` —
+  this matters for `contextual-history-fzf-widget`, whose local/all
+  toggle relies on `HIST_FOREIGN` (visible as the `*` column in
+  `fc -l`).
 
-Net result: the tee writer interlocks with stock zsh's own
-`SHARE_HISTORY` / `INC_APPEND_HISTORY` writers on the same file, even
-across multi-syscall edge cases (huge pasted commands) that the
-pure-shell fallback's lock-free atomicity can't cover.
+Common implementation thread: the module includes a handful of zsh
+source headers and calls `lockhistfile` / `unlockhistfile` /
+`readhistfile` / `unmeta` / `freehistnode` directly, with manual
+`extern` declarations to avoid pulling in the generated `.epro`
+prototype files.
+
+Net result for the tee path: the tee writer interlocks with stock
+zsh's own `SHARE_HISTORY` / `INC_APPEND_HISTORY` writers on the same
+file, even across multi-syscall edge cases (huge pasted commands)
+that the pure-shell fallback's lock-free atomicity can't cover. Net
+result for fast-refresh: widget-time refreshes preserve the
+local-vs-foreign distinction that the fzf widget filters on.
 
 ## Building
 
@@ -99,17 +121,24 @@ directory.
 
 ## When NOT to bother
 
-The pure-shell fallback is good enough for the vast majority of use
-cases. Single-line `printf >> file` writes are kernel-atomic with
-`O_APPEND`, and the pure-shell tee replicates zsh's `lockhistfile`
-protocol so it interlocks with stock zsh writers on the same file.
+The pure-shell fallback is good enough for the tee + ring-replace
+paths in the vast majority of use cases. Single-line `printf >> file`
+writes are kernel-atomic with `O_APPEND`, and the pure-shell tee
+replicates zsh's `lockhistfile` protocol so it interlocks with stock
+zsh writers on the same file.
 
-The native module is meaningfully better only when:
+The native module is meaningfully better when:
 
+- **You use `contextual-history-fzf-widget`.** The fast-refresh
+  builtin is the only mechanism that preserves `HIST_FOREIGN` through
+  the plugin's widget-time refresh. Without it, the widget's
+  local/all toggle becomes a no-op (every entry appears local).
 - You routinely paste multi-kilobyte command lines (rare; could trigger
   multi-syscall writes that the lock-free fallback's per-write atomicity
   doesn't cover, where the native helper's held-lock does).
+- You hit the 2-entry ring-replace leak on toggle / chpwd and care
+  (the leak is documented under `test_p11` / `test_p12`).
 - You care about strict bytewise serialisation under all conditions.
 
-If neither applies, skip the build. The plugin will use the pure-shell
-path automatically.
+If none apply, skip the build. The plugin will use the pure-shell
+paths automatically.

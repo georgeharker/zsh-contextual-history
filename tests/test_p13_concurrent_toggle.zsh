@@ -36,12 +36,13 @@ TEST_SHARE_HISTORY=1 pty_spawn shellB "$HISTROOT" \
 pty_run_cmd shellA 'echo A-dir1' || pty_fail "A-dir1 failed"
 pty_run_cmd shellA 'echo A-dir2' || pty_fail "A-dir2 failed"
 
-# shellA toggles to global mode. The widget prints "using global
-# history", swaps HISTFILE, and ZLE redraws the prompt - we drain
-# all of that output INCLUDING the post-toggle marker so the next
-# `pty_run_cmd`'s read_until isn't fooled by a stale marker.
+# shellA toggles to global mode. The widget emits a status line
+# ("history: global | ..."), swaps HISTFILE, and ZLE redraws the
+# prompt - we drain all of that output INCLUDING the post-toggle
+# marker so the next `pty_run_cmd`'s read_until isn't fooled by a
+# stale marker.
 pty_press_ctrlg shellA
-_pty_read_until shellA "*using global history*" 5 > /dev/null
+_pty_read_until shellA "*history: global*" 5 > /dev/null
 _pty_read_until shellA "*${_pty_markers[shellA]}*" 5 > /dev/null
 
 # shellA runs another command in global mode.
