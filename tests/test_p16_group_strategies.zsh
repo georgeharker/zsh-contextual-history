@@ -29,7 +29,7 @@ mkdir -p "$TREE/inner/sub" "$TREE/.histroot" "$TREE/inner/.git"
 rmdir "$TREE/.histroot" "$TREE/inner/.git" 2>/dev/null
 : > "$TREE/.histroot"
 : > "$TREE/inner/.git"
-trap "pty_cleanup_all; rm -rf $HISTROOT $TREE" EXIT
+trap 'pty_cleanup_all; rm -rf "$HISTROOT" "$TREE"' EXIT
 
 TEST_SHARE_HISTORY=1 pty_spawn shellA "$HISTROOT" \
   || pty_fail "could not spawn shellA"

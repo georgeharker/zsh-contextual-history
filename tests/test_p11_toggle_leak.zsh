@@ -29,7 +29,7 @@
 source "${0:A:h}/lib/pty_harness.zsh"
 
 HISTROOT=$(mktemp -d -t ch-pty-p11.XXXXXX)
-trap "pty_cleanup_all; rm -rf $HISTROOT" EXIT
+trap 'pty_cleanup_all; rm -rf "$HISTROOT"' EXIT
 
 # Pre-populate global file with G1..G5.
 {
@@ -73,7 +73,7 @@ EXPECTED=(echo\ G5 echo\ G4 echo\ G3 echo\ G2 echo\ G1)
 for ((i=1; i<=5; i++)); do
   pty_press_up shellA
   buf=$(pty_inspect_buf shellA)
-  [[ $buf == ${EXPECTED[$i]} ]] \
+  [[ $buf == "${EXPECTED[$i]}" ]] \
     || pty_fail "global-after-toggle ^P #${i}: expected '${EXPECTED[$i]}', got <$buf>"
 done
 

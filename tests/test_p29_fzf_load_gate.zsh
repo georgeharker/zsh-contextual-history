@@ -23,7 +23,7 @@ fi
 FZF_DIR=$(dirname "$(command -v fzf)")
 
 HISTROOT=$(mktemp -d -t ch-pty-p29.XXXXXX)
-trap "pty_cleanup_all; rm -rf $HISTROOT" EXIT
+trap 'pty_cleanup_all; rm -rf "$HISTROOT"' EXIT
 
 # --- case 1: fzf-integration=false, fzf IS on PATH ---
 #

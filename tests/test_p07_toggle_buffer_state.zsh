@@ -24,7 +24,7 @@
 source "${0:A:h}/lib/pty_harness.zsh"
 
 HISTROOT=$(mktemp -d -t ch-pty-p07.XXXXXX)
-trap "pty_cleanup_all; rm -rf $HISTROOT" EXIT
+trap 'pty_cleanup_all; rm -rf "$HISTROOT"' EXIT
 
 print -r -- ': 1000:0;echo only-global' > "$HISTROOT/global"
 

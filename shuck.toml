@@ -1,0 +1,9 @@
+[lint.per-file-ignores]
+# Test files source tests/lib/pty_harness.zsh, which defines _pty_markers
+# and friends. shuck doesn't follow `source`, so cross-file references
+# (e.g. ${_pty_markers[shellA]}) look unbound.
+#
+# Tests also drive spawned shells via `pty_run_cmd 'echo $VAR'`. The
+# single-quoted arg is *intentional* — the spawned shell does the
+# expansion, not the test driver. C005 flags this as a footgun.
+"tests/test_*.zsh" = ["C005", "C006"]

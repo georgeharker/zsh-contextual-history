@@ -18,7 +18,7 @@ source "${0:A:h}/lib/pty_harness.zsh"
 HISTROOT=$(mktemp -d -t ch-pty-p17.XXXXXX)
 PROJ=$(mktemp -d -t ch-pty-p17-proj.XXXXXX)
 mkdir -p "$PROJ/.git" "$PROJ/sub-a" "$PROJ/sub-b"
-trap "pty_cleanup_all; rm -rf $HISTROOT $PROJ" EXIT
+trap 'pty_cleanup_all; rm -rf "$HISTROOT" "$PROJ"' EXIT
 
 # Configure GROUP_BY via zstyle, NOT via env var. The harness's
 # TEST_PRE_SOURCE hook inlines this BEFORE sourcing the plugin, so the

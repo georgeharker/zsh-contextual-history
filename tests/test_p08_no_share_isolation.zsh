@@ -22,7 +22,7 @@
 source "${0:A:h}/lib/pty_harness.zsh"
 
 HISTROOT=$(mktemp -d -t ch-pty-p08.XXXXXX)
-trap "pty_cleanup_all; rm -rf $HISTROOT" EXIT
+trap 'pty_cleanup_all; rm -rf "$HISTROOT"' EXIT
 
 # Default per-dir mode, NO SHARE_HISTORY, NO INC_APPEND.
 pty_spawn shellA "$HISTROOT" || pty_fail "could not spawn shellA"

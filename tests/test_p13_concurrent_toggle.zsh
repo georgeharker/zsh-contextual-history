@@ -25,7 +25,7 @@
 source "${0:A:h}/lib/pty_harness.zsh"
 
 HISTROOT=$(mktemp -d -t ch-pty-p13.XXXXXX)
-trap "pty_cleanup_all; rm -rf $HISTROOT" EXIT
+trap 'pty_cleanup_all; rm -rf "$HISTROOT"' EXIT
 
 TEST_SHARE_HISTORY=1 pty_spawn shellA "$HISTROOT" \
   || pty_fail "could not spawn shellA"
@@ -60,7 +60,7 @@ EXPECTED=(
 for ((i=1; i<=${#EXPECTED}; i++)); do
   pty_press_up shellB
   buf=$(pty_inspect_buf shellB)
-  [[ $buf == ${EXPECTED[$i]} ]] \
+  [[ $buf == "${EXPECTED[$i]}" ]] \
     || pty_fail "shellB ^P #${i}: expected '${EXPECTED[$i]}', got <$buf>"
 done
 

@@ -38,7 +38,7 @@ FZF_DIR=$(dirname "$(command -v fzf)")
 TEST_PRE_SOURCE="path=(${(q)FZF_DIR} \$path)"
 
 HISTROOT=$(mktemp -d -t ch-pty-p30.XXXXXX)
-trap "pty_cleanup_all; rm -rf $HISTROOT" EXIT
+trap 'pty_cleanup_all; rm -rf "$HISTROOT"' EXIT
 
 # Pre-populate the per-dir histfile with one "pre-startup" entry. The
 # resolver uses cwd, which inside the PTY is set to the spawned
@@ -74,7 +74,7 @@ pty_run_cmd shellA 'print -r -- "HISTFILE_IS=$HISTFILE"' \
 shellA_histfile=${REPLY##*HISTFILE_IS=}
 shellA_histfile=${shellA_histfile%%$'\r'*}
 shellA_histfile=${shellA_histfile%%$'\n'*}
-[[ $shellA_histfile == $histfile ]] \
+[[ $shellA_histfile == "$histfile" ]] \
   || pty_fail "shellA histfile <$shellA_histfile> != seeded <$histfile>"
 
 # CASE 1 - entry that was on disk BEFORE shellA started. zsh itself

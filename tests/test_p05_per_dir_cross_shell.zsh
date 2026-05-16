@@ -15,7 +15,7 @@
 source "${0:A:h}/lib/pty_harness.zsh"
 
 HISTROOT=$(mktemp -d -t ch-pty-p05.XXXXXX)
-trap "pty_cleanup_all; rm -rf $HISTROOT" EXIT
+trap 'pty_cleanup_all; rm -rf "$HISTROOT"' EXIT
 
 # Default mode (TEST_START_GLOBAL not set) -> per-directory.
 TEST_SHARE_HISTORY=1 pty_spawn shellA "$HISTROOT" \

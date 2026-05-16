@@ -31,7 +31,7 @@ FZF_DIR=$(dirname "$(command -v fzf)")
 TEST_PRE_SOURCE="path=(${(q)FZF_DIR} \$path)"
 
 HISTROOT=$(mktemp -d -t ch-pty-p28.XXXXXX)
-trap "pty_cleanup_all; rm -rf $HISTROOT" EXIT
+trap 'pty_cleanup_all; rm -rf "$HISTROOT"' EXIT
 
 TEST_SHARE_HISTORY=1 CONTEXTUAL_HISTORY_USE_MODULE=false TEST_PRE_SOURCE="$TEST_PRE_SOURCE" \
   pty_spawn shellA "$HISTROOT" || pty_fail "could not spawn shellA"

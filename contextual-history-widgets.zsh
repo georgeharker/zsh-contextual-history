@@ -89,7 +89,7 @@ function _context-history-refresh-impl() {
   # at Src/hist.c:2706-2708 sets HIST_OLD|HIST_READ but NOT HIST_FOREIGN
   # - so refreshing via `fc -RI` would launder the local/foreign axis
   # for any entry pulled in here, breaking the fzf widget's filter.
-  if [[ $_context_history_have_native_fast_refresh == true ]]; then
+  if [[ ${_context_history_have_native_fast_refresh:-false} == true ]]; then
     _ch_dbg "refresh-impl: mtime $_context_history_last_mtime -> $cur_mtime, fast-refresh ${HISTFILE}"
     contextual-history-fast-refresh "$HISTFILE" 2>/dev/null
   else

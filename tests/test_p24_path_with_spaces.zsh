@@ -24,7 +24,7 @@ HISTROOT=$(mktemp -d -t ch-pty-p24.XXXXXX)
 # enough to surface unquoted-expansion bugs.
 AWKWARD="$HISTROOT/has space and ' quote"
 mkdir -p "$AWKWARD" || pty_fail "mkdir awkward dir"
-trap "pty_cleanup_all; rm -rf $HISTROOT" EXIT
+trap 'pty_cleanup_all; rm -rf "$HISTROOT"' EXIT
 
 TEST_SHARE_HISTORY=1 pty_spawn shellA "$HISTROOT" || pty_fail "spawn A"
 

@@ -21,7 +21,7 @@
 source "${0:A:h}/lib/pty_harness.zsh"
 
 HISTROOT=$(mktemp -d -t ch-pty-p23.XXXXXX)
-trap "pty_cleanup_all; rm -rf $HISTROOT" EXIT
+trap 'pty_cleanup_all; rm -rf "$HISTROOT"' EXIT
 
 # Both shells get HIST_FCNTL_LOCK before sourcing the plugin so the
 # tee's lock-protocol branch picks fcntl on first write.

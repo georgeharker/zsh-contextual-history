@@ -23,7 +23,7 @@ if [[ ! -f $MODULE_BUNDLE && ! -f $MODULE_SO ]]; then
 fi
 
 HISTROOT=$(mktemp -d -t ch-pty-p10.XXXXXX)
-trap "pty_cleanup_all; rm -rf $HISTROOT" EXIT
+trap 'pty_cleanup_all; rm -rf "$HISTROOT"' EXIT
 
 # Same scenario as p01 but with USE_MODULE=true.
 TEST_SHARE_HISTORY=1 CONTEXTUAL_HISTORY_USE_MODULE=true pty_spawn shellA "$HISTROOT" \

@@ -36,7 +36,7 @@ source "${0:A:h}/lib/pty_harness.zsh"
 HISTROOT=$(mktemp -d -t ch-pty-p12.XXXXXX)
 DIRA=$(mktemp -d -t ch-pty-p12-dirA.XXXXXX)
 DIRB=$(mktemp -d -t ch-pty-p12-dirB.XXXXXX)
-trap "pty_cleanup_all; rm -rf $HISTROOT $DIRA $DIRB" EXIT
+trap 'pty_cleanup_all; rm -rf "$HISTROOT" "$DIRA" "$DIRB"' EXIT
 
 DIRA_REAL=${DIRA:A}
 DIRB_REAL=${DIRB:A}
@@ -65,7 +65,7 @@ EXPECTED=(
 for ((i=1; i<=${#EXPECTED}; i++)); do
   pty_press_up shellA
   buf=$(pty_inspect_buf shellA)
-  [[ $buf == ${EXPECTED[$i]} ]] \
+  [[ $buf == "${EXPECTED[$i]}" ]] \
     || pty_fail "step ${i}: expected '${EXPECTED[$i]}', got <$buf>"
 done
 

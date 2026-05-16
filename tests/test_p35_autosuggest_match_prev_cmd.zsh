@@ -32,7 +32,7 @@
 source "${0:A:h}/lib/pty_harness.zsh"
 
 HISTROOT=$(mktemp -d -t ch-pty-p35.XXXXXX)
-trap "pty_cleanup_all; rm -rf $HISTROOT" EXIT
+trap 'pty_cleanup_all; rm -rf "$HISTROOT"' EXIT
 
 TEST_SHARE_HISTORY=1 pty_spawn shellA "$HISTROOT" \
   || pty_fail "spawn"

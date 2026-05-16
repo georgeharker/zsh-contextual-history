@@ -15,7 +15,7 @@
 source "${0:A:h}/lib/pty_harness.zsh"
 
 HISTROOT=$(mktemp -d -t ch-pty-p21.XXXXXX)
-trap "pty_cleanup_all; rm -rf $HISTROOT" EXIT
+trap 'pty_cleanup_all; rm -rf "$HISTROOT"' EXIT
 
 TEST_SHARE_HISTORY=1 pty_spawn shellA "$HISTROOT" || pty_fail "spawn A"
 
@@ -62,7 +62,7 @@ verify_order() {
   done < "$file"
   local i
   for ((i=1; i<=${#expected}; i++)); do
-    [[ ${actual[$i]} == ${expected[$i]} ]] \
+    [[ ${actual[$i]} == "${expected[$i]}" ]] \
       || pty_fail "$label: position $i expected '${expected[$i]}', got '${actual[$i]}'"
   done
   (( ${#actual} >= ${#expected} )) \

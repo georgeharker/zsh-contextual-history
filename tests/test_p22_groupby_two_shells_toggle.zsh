@@ -17,7 +17,7 @@ source "${0:A:h}/lib/pty_harness.zsh"
 HISTROOT=$(mktemp -d -t ch-pty-p22.XXXXXX)
 PROJ=$(mktemp -d -t ch-pty-p22-proj.XXXXXX)
 mkdir -p "$PROJ/.git" "$PROJ/sub-a" "$PROJ/sub-b"
-trap "pty_cleanup_all; rm -rf $HISTROOT $PROJ" EXIT
+trap 'pty_cleanup_all; rm -rf "$HISTROOT" "$PROJ"' EXIT
 
 # Both shells get GROUP_BY=.git via zstyle (set pre-source by the
 # harness's TEST_PRE_SOURCE hook).

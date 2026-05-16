@@ -660,7 +660,7 @@ add-zsh-hook precmd _context-history-precmd
   local _ch_self_dir=${${(%):-%x}:A:h}
   local _ch_widgets_file="$_ch_self_dir/contextual-history-widgets.zsh"
   if [[ -f $_ch_widgets_file ]]; then
-    source "$_ch_widgets_file"
+    source "$_ch_widgets_file"  # shuck: ignore=C002
   fi
 }
 
@@ -694,7 +694,7 @@ _context_history_initialized=false
   local _ch_self_dir=${${(%):-%x}:A:h}
   local _ch_kb_file="$_ch_self_dir/contextual-history-keybinds.zsh"
   if [[ -f $_ch_kb_file ]]; then
-    source "$_ch_kb_file"
+    source "$_ch_kb_file"  # shuck: ignore=C002
   fi
 }
 
@@ -711,7 +711,7 @@ _context_history_initialized=false
   local _ch_self_dir=${${(%):-%x}:A:h}
   local _ch_as_file="$_ch_self_dir/contextual-history-autosuggest.zsh"
   if [[ -f $_ch_as_file ]]; then
-    source "$_ch_as_file"
+    source "$_ch_as_file"  # shuck: ignore=C002
   fi
 }
 
@@ -728,7 +728,7 @@ _context_history_initialized=false
   elif [[ ! -f $_ch_fzf_file ]]; then
     _ch_dbg "fzf integration skipped: $_ch_fzf_file not found"
   else
-    source "$_ch_fzf_file"
+    source "$_ch_fzf_file"  # shuck: ignore=C002
   fi
 }
 

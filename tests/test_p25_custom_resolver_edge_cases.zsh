@@ -22,7 +22,7 @@ source "${0:A:h}/lib/pty_harness.zsh"
 HISTROOT=$(mktemp -d -t ch-pty-p25.XXXXXX)
 DIRA=$(mktemp -d -t ch-pty-p25-A.XXXXXX)
 DIRB=$(mktemp -d -t ch-pty-p25-B.XXXXXX)
-trap "pty_cleanup_all; rm -rf $HISTROOT $DIRA $DIRB" EXIT
+trap 'pty_cleanup_all; rm -rf "$HISTROOT" "$DIRA" "$DIRB"' EXIT
 
 # --- case 1: empty-string resolver ----------------------------------
 # All dirs collapse to one shared per-dir file at

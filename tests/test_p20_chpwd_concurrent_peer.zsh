@@ -28,7 +28,7 @@ source "${0:A:h}/lib/pty_harness.zsh"
 HISTROOT=$(mktemp -d -t ch-pty-p20.XXXXXX)
 DIRA=$(mktemp -d -t ch-pty-p20-A.XXXXXX)
 DIRB=$(mktemp -d -t ch-pty-p20-B.XXXXXX)
-trap "pty_cleanup_all; rm -rf $HISTROOT $DIRA $DIRB" EXIT
+trap 'pty_cleanup_all; rm -rf "$HISTROOT" "$DIRA" "$DIRB"' EXIT
 
 TEST_SHARE_HISTORY=1 pty_spawn shellA "$HISTROOT" || pty_fail "spawn A"
 TEST_SHARE_HISTORY=1 pty_spawn shellB "$HISTROOT" || pty_fail "spawn B"

@@ -22,7 +22,7 @@ source "${0:A:h}/lib/pty_harness.zsh"
 HISTROOT=$(mktemp -d -t ch-pty-p15.XXXXXX)
 PROJ=$(mktemp -d -t ch-pty-p15-proj.XXXXXX)
 mkdir -p "$PROJ/.git" "$PROJ/sub-a" "$PROJ/sub-b"
-trap "pty_cleanup_all; rm -rf $HISTROOT $PROJ" EXIT
+trap 'pty_cleanup_all; rm -rf "$HISTROOT" "$PROJ"' EXIT
 
 # We need GROUP_BY set BEFORE the plugin's source-time resolve.
 # pty_harness's mk_rc writes the rc with HISTFILE etc. BEFORE the

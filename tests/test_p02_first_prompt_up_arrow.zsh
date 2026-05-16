@@ -17,7 +17,7 @@
 source "${0:A:h}/lib/pty_harness.zsh"
 
 HISTROOT=$(mktemp -d -t ch-pty-p02.XXXXXX)
-trap "pty_cleanup_all; rm -rf $HISTROOT" EXIT
+trap 'pty_cleanup_all; rm -rf "$HISTROOT"' EXIT
 
 # Pre-populate global file. Use TEST_START_GLOBAL=1 so the spawned
 # shell's HISTFILE stays at the global path (no pre-init swap to per-dir).

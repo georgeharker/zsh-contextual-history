@@ -96,7 +96,7 @@ function _zsh_autosuggest_strategy_contextual_history() {
 
   if (( ! ${_context_history_local_mode:-0} )); then
     # Local-history off: same single-subscript fast path as upstream.
-    typeset -g suggestion="${history[(r)$~pattern]}"
+    typeset -g suggestion="${history[(r)$~pattern]}"  # shuck: ignore=C006
     return
   fi
 
@@ -176,5 +176,5 @@ function _zsh_autosuggest_strategy_contextual_match_prev_cmd() {
     fi
   done
 
-  typeset -g suggestion="${history[$histkey]}"
+  typeset -g suggestion="${history[$histkey]}"  # shuck: ignore=C001
 }
