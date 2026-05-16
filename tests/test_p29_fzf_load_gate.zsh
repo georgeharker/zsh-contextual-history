@@ -4,9 +4,9 @@
 # Verifies the two conditions that gate loading of the fzf
 # integration file (contextual-history-fzf.zsh) from the main plugin:
 #
-#   1. CONTEXTUAL_HISTORY_USE_FZF / use-fzf=false → don't source,
+#   1. CONTEXTUAL_HISTORY_FZF_INTEGRATION / fzf-integration=false → don't source,
 #      even if fzf is on PATH.
-#   2. fzf not on PATH → don't source, even if use-fzf=true.
+#   2. fzf not on PATH → don't source, even if fzf-integration=true.
 #
 # When the file isn't sourced, the widget isn't registered. The check
 # probes `${+widgets[contextual-history-fzf-widget]}` for 0.
@@ -25,28 +25,28 @@ FZF_DIR=$(dirname "$(command -v fzf)")
 HISTROOT=$(mktemp -d -t ch-pty-p29.XXXXXX)
 trap "pty_cleanup_all; rm -rf $HISTROOT" EXIT
 
-# --- case 1: use-fzf=false, fzf IS on PATH ---
+# --- case 1: fzf-integration=false, fzf IS on PATH ---
 #
 # Inject fzf into PATH so the gate's `command -v fzf` would succeed,
-# then set use-fzf=false BEFORE the plugin sources. The integration
+# then set fzf-integration=false BEFORE the plugin sources. The integration
 # file should be skipped because of the zstyle / env var, not the
 # PATH check.
-TEST_PRE_SOURCE="path=(${(q)FZF_DIR} \$path); CONTEXTUAL_HISTORY_USE_FZF=false" \
+TEST_PRE_SOURCE="path=(${(q)FZF_DIR} \$path); CONTEXTUAL_HISTORY_FZF_INTEGRATION=false" \
   TEST_SHARE_HISTORY=1 pty_spawn shellOff "$HISTROOT" \
   || pty_fail "could not spawn shellOff"
 
 pty_run_cmd shellOff 'print -r -- "WIDGET=$((${+widgets[contextual-history-fzf-widget]}))"' \
   || pty_fail "could not query widget (off)"
 [[ $REPLY == *WIDGET=0* ]] \
-  || pty_fail "case 1: widget should NOT be registered when use-fzf=false; got <$REPLY>"
+  || pty_fail "case 1: widget should NOT be registered when fzf-integration=false; got <$REPLY>"
 
-# Also verify use-fzf reading: env var should be observable post-source.
-pty_run_cmd shellOff 'print -r -- "USE_FZF=$CONTEXTUAL_HISTORY_USE_FZF"' \
-  || pty_fail "could not query use-fzf var"
-[[ $REPLY == *USE_FZF=false* ]] \
-  || pty_fail "case 1: USE_FZF env var lost; got <$REPLY>"
+# Also verify fzf-integration reading: env var should be observable post-source.
+pty_run_cmd shellOff 'print -r -- "FZF_INTEGRATION=$CONTEXTUAL_HISTORY_FZF_INTEGRATION"' \
+  || pty_fail "could not query fzf-integration var"
+[[ $REPLY == *FZF_INTEGRATION=false* ]] \
+  || pty_fail "case 1: FZF_INTEGRATION env var lost; got <$REPLY>"
 
-# --- case 2: use-fzf=true (default), fzf NOT on PATH ---
+# --- case 2: fzf-integration=true (default), fzf NOT on PATH ---
 #
 # Don't inject fzf into PATH. The harness's scrubbed PATH
 # (/usr/bin:/bin:/usr/sbin:/sbin) doesn't include fzf on a typical

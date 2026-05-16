@@ -20,7 +20,7 @@
 source "${0:A:h}/lib/pty_harness.zsh"
 
 # The fzf integration file is only sourced when fzf is on PATH at
-# plugin load (use-fzf gate + command -v fzf check). The PTY harness
+# plugin load (fzf-integration gate + command -v fzf check). The PTY harness
 # uses a scrubbed PATH, so inject fzf's directory via TEST_PRE_SOURCE
 # so the widget actually loads even in the no-module scenario.
 if ! command -v fzf >/dev/null 2>&1; then

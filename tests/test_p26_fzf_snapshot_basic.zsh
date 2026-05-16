@@ -37,7 +37,7 @@ if [[ ! -f $MODULE_BUNDLE && ! -f $MODULE_SO ]]; then
 fi
 
 # The fzf integration file is only sourced when fzf is on PATH at
-# plugin load (use-fzf gate + command -v fzf check). The PTY harness
+# plugin load (fzf-integration gate + command -v fzf check). The PTY harness
 # uses a scrubbed PATH; inject fzf's directory via TEST_PRE_SOURCE so
 # the snapshot function is defined inside the test shell.
 if ! command -v fzf >/dev/null 2>&1; then

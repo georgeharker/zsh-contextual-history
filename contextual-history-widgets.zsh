@@ -21,7 +21,7 @@
 #   _context-history-wrap-widget
 #   _context_history_orig_widgets  (state)
 #   _context_history_last_mtime    (state)
-#   CONTEXTUAL_HISTORY_REFRESH_ON_NAV / refresh-on-nav config
+#   CONTEXTUAL_HISTORY_WRAP_WIDGETS / wrap-widgets config
 #   CONTEXTUAL_HISTORY_REFRESHING_WIDGETS / refreshing-widgets config
 #   First-precmd hook to install wraps
 #
@@ -39,7 +39,7 @@
 # Configuration
 #-------------------------------------------------------------------------------
 
-_ch_resolve CONTEXTUAL_HISTORY_REFRESH_ON_NAV refresh-on-nav true
+_ch_resolve CONTEXTUAL_HISTORY_WRAP_WIDGETS wrap-widgets true
 
 # Set of widgets to wrap. Configurable so users can extend (or shrink)
 # the list. The wrap is idempotent, so calling wrap-widget with
@@ -242,7 +242,7 @@ typeset -gi _context_history_widgets_installed=0
 function _context-history-widgets-install() {
   (( _context_history_widgets_installed )) && return 0
   _context_history_widgets_installed=1
-  [[ $CONTEXTUAL_HISTORY_REFRESH_ON_NAV == true ]] || return 0
+  [[ $CONTEXTUAL_HISTORY_WRAP_WIDGETS == true ]] || return 0
   _context-history-wrap-widget
 }
 

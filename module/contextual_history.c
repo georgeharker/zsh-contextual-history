@@ -25,8 +25,8 @@
  *     pulled in by widget-time refreshes. The pure-shell fallback
  *     (`fc -RI`) uses HFILE_SKIPOLD, which does NOT set HIST_FOREIGN
  *     and so launders the local/foreign distinction. Used by the
- *     refresh-on-nav hook and the fzf widget to preserve foreignness
- *     between hend merges.
+ *     wrap-widgets refresh path and the fzf widget to preserve
+ *     foreignness between hend merges.
  *
  * Module name (zsh side): `zsh/contextual_history`. The plugin loads via:
  *     zmodload zsh/contextual_history

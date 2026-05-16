@@ -31,13 +31,13 @@
 #   HISTORY_START_WITH_GLOBAL              | start-with-global     | false
 #   CONTEXTUAL_HISTORY_TOGGLE              | toggle-key            | ^G
 #   CONTEXTUAL_HISTORY_USE_MODULE          | use-module            | false
-#   CONTEXTUAL_HISTORY_USE_FZF             | use-fzf               | true        | (gate)
+#   CONTEXTUAL_HISTORY_FZF_INTEGRATION     | fzf-integration       | true        | (gate)
 #   CONTEXTUAL_HISTORY_DEBUG               | debug                 | false
 #   CONTEXTUAL_HISTORY_GROUP_BY            | group-by              | ()
 #   CONTEXTUAL_HISTORY_GROUP_STOPS         | group-stops           | ()
 #
 #   Widget machinery (contextual-history-widgets.zsh)
-#   CONTEXTUAL_HISTORY_REFRESH_ON_NAV      | refresh-on-nav        | true
+#   CONTEXTUAL_HISTORY_WRAP_WIDGETS        | wrap-widgets          | true
 #   CONTEXTUAL_HISTORY_REFRESHING_WIDGETS  | refreshing-widgets    | (nav widgets)
 #
 #   Local-history navigation filter (contextual-history-keybinds.zsh)
@@ -156,7 +156,7 @@ _ch_resolve CONTEXTUAL_HISTORY_TOGGLE         toggle-key         '^G'
 _ch_resolve CONTEXTUAL_HISTORY_USE_MODULE     use-module         false
 _ch_resolve CONTEXTUAL_HISTORY_DEBUG          debug              false
 
-# Note: CONTEXTUAL_HISTORY_REFRESH_ON_NAV and
+# Note: CONTEXTUAL_HISTORY_WRAP_WIDGETS and
 # CONTEXTUAL_HISTORY_REFRESHING_WIDGETS are resolved inside
 # contextual-history-widgets.zsh, which is auto-sourced near the end
 # of this file.
@@ -165,7 +165,7 @@ _ch_resolve CONTEXTUAL_HISTORY_DEBUG          debug              false
 # Even when set to true, the fzf file is only sourced if `fzf` is on
 # PATH at plugin source time. All fzf-widget-specific settings live in
 # the fzf file itself and only matter when the integration loads.
-_ch_resolve CONTEXTUAL_HISTORY_USE_FZF        use-fzf            true
+_ch_resolve CONTEXTUAL_HISTORY_FZF_INTEGRATION fzf-integration   true
 
 # Extra keybind-driven features (e.g. local-history navigation filter)
 # live in contextual-history-keybinds.zsh, auto-sourced near the end
@@ -623,15 +623,16 @@ add-zsh-hook precmd _context-history-precmd
 # Auto-source the widgets sibling
 #-------------------------------------------------------------------------------
 #
-# History-navigation widget wraps + mtime-gated refresh-on-nav live
-# in contextual-history-widgets.zsh. Sourced FIRST among the sibling
+# History-navigation widget wraps + mtime-gated refresh live in
+# contextual-history-widgets.zsh. Sourced FIRST among the sibling
 # files because the keybinds and fzf siblings depend on its wrap
 # infrastructure (_context-history-call-original, the
 # refresh-impl, the orig_widgets state map).
 #
-# Always-sourced when the file is present. Refresh-on-nav and the
-# refreshing-widgets list are zstyle-configurable inside that file;
-# the wrap installation is gated on refresh-on-nav=true (the default).
+# Always-sourced when the file is present. The wrap-widgets switch
+# and the refreshing-widgets list are zstyle-configurable inside
+# that file; the wrap installation is gated on wrap-widgets=true
+# (the default).
 
 {
   local _ch_self_dir=${${(%):-%x}:A:h}
@@ -652,7 +653,7 @@ _context_history_initialized=false
 # history-swap / tee / share behaviour. The fzf file is sourced
 # only when ALL of:
 #   1. `fzf` is on PATH at plugin source time;
-#   2. CONTEXTUAL_HISTORY_USE_FZF / use-fzf is true (default);
+#   2. CONTEXTUAL_HISTORY_FZF_INTEGRATION / fzf-integration is true (default);
 #   3. the sibling file exists alongside us.
 # This avoids registering an unused widget for users who don't have
 # fzf installed, and lets users opt out explicitly.
@@ -698,8 +699,8 @@ _context_history_initialized=false
   local _ch_self_dir=${${(%):-%x}:A:h}
   local _ch_fzf_file="$_ch_self_dir/contextual-history-fzf.zsh"
 
-  if [[ ${CONTEXTUAL_HISTORY_USE_FZF:-true} != true ]]; then
-    _ch_dbg "fzf integration disabled by use-fzf=false"
+  if [[ ${CONTEXTUAL_HISTORY_FZF_INTEGRATION:-true} != true ]]; then
+    _ch_dbg "fzf integration disabled by fzf-integration=false"
   elif ! command -v fzf >/dev/null 2>&1; then
     _ch_dbg "fzf integration skipped: fzf not on PATH"
   elif [[ ! -f $_ch_fzf_file ]]; then

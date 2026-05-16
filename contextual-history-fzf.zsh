@@ -20,7 +20,7 @@
 #   _ch_resolve, _ch_dbg                        - from main plugin
 #   _context_history_have_native_fast_refresh   - from main plugin
 #   _context-history-wrap-widget         - from widgets sibling
-#   CONTEXTUAL_HISTORY_REFRESH_ON_NAV           - from widgets sibling
+#   CONTEXTUAL_HISTORY_WRAP_WIDGETS             - from widgets sibling
 #   CONTEXTUAL_HISTORY_REFRESHING_WIDGETS       - from widgets sibling
 #   add-zsh-hook                                - autoloaded by main plugin
 #
@@ -391,10 +391,10 @@ function _context-history-fzf-maybe-takeover() {
   (( ${+widgets[fzf-history-widget]} )) || return 0
   _context_history_fzf_detected=true
 
-  # Wrap fzf-history-widget so refresh-on-nav fires before fzf reads.
-  # Our own widget already calls refresh internally; wrap it too for
-  # consistency.
-  if [[ $CONTEXTUAL_HISTORY_REFRESH_ON_NAV == true ]]; then
+  # Wrap fzf-history-widget so the mtime-gated refresh fires before
+  # fzf reads. Our own widget already calls refresh internally; wrap
+  # it too for consistency.
+  if [[ $CONTEXTUAL_HISTORY_WRAP_WIDGETS == true ]]; then
     local extra
     for extra in fzf-history-widget contextual-history-fzf-widget; do
       if (( ${CONTEXTUAL_HISTORY_REFRESHING_WIDGETS[(I)$extra]} == 0 )); then

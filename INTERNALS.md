@@ -235,12 +235,13 @@ itself, and (indirectly) the rewrite-block. From script context,
 `fc -RI` is the closest equivalent — and it passes `HFILE_SKIPOLD`
 without `HFILE_FAST`, so `fc -RI` does NOT set `HIST_FOREIGN`.
 
-This matters for the plugin's `refresh-on-nav` path. Refresh-on-nav
-fires inside history-navigation widgets and refreshes the ring
-against the on-disk file so peer-shell writes are visible to the
-widget. If refresh uses `fc -RI`, every entry it pulls in is loaded
-as if this shell wrote it — laundering the foreign tag before any
-downstream consumer (fzf widget, custom ranker) can read it.
+This matters for the plugin's nav-widget wrap layer (gated by
+`wrap-widgets`). The wrap fires inside history-navigation widgets
+and refreshes the in-memory history against the on-disk file so
+peer-shell writes are visible to the widget. If refresh uses `fc
+-RI`, every entry it pulls in is loaded as if this shell wrote it —
+laundering the foreign tag before any downstream consumer (fzf
+widget, custom ranker) can read it.
 
 ### The native fast-refresh builtin
 
@@ -259,11 +260,12 @@ HFILE_FAST | HFILE_SKIPOLD)`. The flag combination:
   duplicates of local entries.
 - `HFILE_USE_OPTIONS` — matches the hend-merge's call.
 
-When the module is loaded, `refresh-on-nav` automatically uses the
-builtin. When it isn't, the plugin falls back to `fc -RI` and the
-widget's local/all toggle becomes a no-op (every entry appears
-local). The widget itself still works without the module — just
-without the discrimination.
+When the module is loaded, the nav-widget wrap automatically uses
+the builtin. When it isn't, the plugin falls back to `fc -RI` and
+the widget's local/all toggle becomes a no-op for entries that
+arrive mid-session (every entry appears local). The widget itself
+still works without the module — just without the discrimination
+for mid-session arrivals.
 
 ### The widget design
 
@@ -495,10 +497,10 @@ by default. Incremental search behaves as today.
 
 ### Composition with the existing wrap
 
-The `_context-history-refreshing-widget` wrap already exists for
-refresh-on-nav (mtime-gated `fc -RI` or fast-refresh before each
-nav widget invocation). Local-history rides the same wrap: dispatch
-to the underlying widget remains a single helper
+The `_context-history-refreshing-widget` wrap already exists to do
+mtime-gated refresh (`fc -RI` or the native fast-refresh) before
+each nav widget invocation. Local-history rides the same wrap:
+dispatch to the underlying widget remains a single helper
 (`_context-history-dispatch-original`), called once for the normal
 case and additionally by the skip loop. Refresh + skip-loop compose
 cleanly because refresh runs once before any skip iteration.
@@ -507,6 +509,106 @@ Verified by `test_p32_local_skip.zsh`: pre-seed a peer entry, press
 up enough times to find it (local-history off), then reset, toggle
 local-history on, press up many times — the peer entry is never
 reached.
+
+### Edge cases
+
+- **Same-text peer collision.** The lookup is text-only (see "Why
+  text-only" above). If a peer shell ever typed exactly the same
+  command text as you, the local-history filter treats it as yours.
+  Worst case is one extra step that lands on a peer entry whose text
+  you'd have produced yourself. Acceptable.
+- **Prior-session entries are not "yours".** Entries already on disk
+  when this shell started — including your own typing from a prior
+  session — aren't in `_context_history_local_texts`. They're
+  skipped under local-history mode. Symmetric with the fzf widget's
+  L/F semantic: "L" means "typed in *this* shell", not "I typed it
+  some time".
+
+### Configuration overrides
+
+Three knobs control the wrap layer:
+
+- `CONTEXTUAL_HISTORY_WRAP_WIDGETS` / `wrap-widgets` (default `true`).
+  Master switch: install our wraps around the history-nav widgets at
+  all? Set `false` to leave zsh's history widgets untouched. Doing
+  so disables both idle peer visibility (under `SHARE_HISTORY`, peer
+  writes only land in this shell's in-memory history at `hend` time
+  — i.e. after the next command runs; without the wrap, pressing up
+  between commands sees a stale view) and the local-history filter
+  (the skip loop lives inside this same wrap). Exposed in the
+  user-facing config table.
+- `CONTEXTUAL_HISTORY_REFRESHING_WIDGETS` / `refreshing-widgets`
+  (default: all standard nav widgets). Override which widgets get
+  the refresh wrap. Useful if a third-party plugin defines a custom
+  nav widget you want included, or to exclude a specific widget.
+- `CONTEXTUAL_HISTORY_LOCAL_WIDGETS` / `local-widgets` (default:
+  same set minus incremental search). Subset of `refreshing-widgets`
+  that ALSO get the local-history skip-loop. Used when you want a
+  widget refreshed but NOT filtered.
+
+----------------------------------------------------------------------------
+
+## zsh-autosuggestions strategies
+
+Two suggestion strategies in `contextual-history-autosuggest.zsh`:
+`contextual_history` and `contextual_match_prev_cmd`. Both are
+walk-local-aware ports of upstream's `history` and `match_prev_cmd`
+strategies, sharing prefix-escape and `ZSH_AUTOSUGGEST_HISTORY_IGNORE`
+handling with the upstream source so behaviour matches when
+local-history mode is off.
+
+### Why a port instead of stock + a wrapper
+
+Stock strategies operate on `$history`. Our context-vs-global toggle
+already swaps `$history` wholesale, so stock strategies follow that
+axis for free. They don't know about the local-history mode bit
+though, and there's no upstream hook for "filter the candidate list
+before I pick". The cheapest fix is a per-strategy port that
+consults `_context_history_local_texts` directly.
+
+### Algorithm
+
+`contextual_history`:
+
+- Local-history off: identical to upstream — single
+  `${history[(r)PATTERN]}` subscript, returning the newest entry
+  whose text starts with the user's buffer prefix.
+- Local-history on: pulls the keys of `$history` whose values match
+  the pattern (newest-first by iteration order), and returns the
+  first whose text appears in `_context_history_local_texts`.
+  `O(1)` membership check; loop bails on first hit.
+
+`contextual_match_prev_cmd`:
+
+- Build candidate keys by `${(k)history[(R)$~pattern]}` — same as
+  upstream.
+- When local-history mode is on, drop candidates whose text is not in
+  `_context_history_local_texts`.
+- Default suggestion = newest remaining candidate. Then walk up to
+  200 candidates (mirroring upstream's cap), upgrading to one whose
+  *preceding* history entry equals `${history[$((HISTCMD-1))]}` (the
+  user's last-executed command). In local-history mode, also require
+  the preceding entry to be local — so the `(prev_cmd, follow)`
+  pattern is learned from this shell's typing only, not from
+  peer-shell sequences.
+
+### Toggle responsiveness
+
+zsh-autosuggestions only recomputes on buffer change, so toggling
+either filter axis would leave a stale suggestion until the next
+keystroke. The shared `_context-history-print-status` helper (used
+by both toggle widgets) emits `zle autosuggest-fetch` after flipping
+the bit, guarded by `${+widgets[autosuggest-fetch]}` so the
+dependency stays soft if autosuggestions isn't loaded.
+
+### Why two strategies, not one
+
+Upstream's `history` and `match_prev_cmd` make different bets about
+what predicts the user's intent. Users who prefer `history` get
+`contextual_history`; users who prefer `match_prev_cmd` get
+`contextual_match_prev_cmd`. Chaining the two via
+`ZSH_AUTOSUGGEST_STRATEGY=(A B)` would not give clean local-history
+semantics — see the user-facing README for the trade-off discussion.
 
 ----------------------------------------------------------------------------
 
@@ -589,7 +691,7 @@ naturally a sibling project than a PR.
 32 PTY-based scenario tests under `tests/`, each covering one
 behaviour grounded above. Tests `p26`-`p31` cover the fzf integration
 (snapshot tagging, multi-shell SHARE filter toggle, no-module
-degradation, the `use-fzf` load gate, the L/F semantic, and L tag
+degradation, the `fzf-integration` load gate, the L/F semantic, and L tag
 preservation across ring replacement). Test `p32` covers the
 local-history navigation filter.
 
