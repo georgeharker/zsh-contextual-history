@@ -25,11 +25,16 @@ file an issue.
 |---|---|
 | `$HISTFILE` is swapped on `chpwd`/toggle (was: `fc -p` inside `zshaddhistory`) | `fc -p` inside the addhistory hook is auto-popped by `hend()` (`Src/hist.c:1633`). The per-dir file never becomes zsh's authoritative `$HISTFILE`, so `SHARE_HISTORY`'s prompt-time merge never reads it. Same-directory cross-terminal sync is silently broken in upstream. |
 | No `fc -AI` flush in mode-swap functions | `fc -AI` against an active history file triggers `savehistfile()`'s rewrite block (`Src/hist.c:3082-3098`), which truncates and rewrites the file. Concurrent SHARE readers see invalidated `lasthist.fpos` and silently lose entries. |
-| Mode-N (no `SHARE`/`INC`) gets `fc -AI` flush at `chpwd`, gated to mode N | Without an explicit flush, in-memory entries get wiped at the `HISTSIZE=0; fc -R newfile` step before reaching disk. The rewrite-block hazard doesn't apply in mode N because there's no concurrent reader. |
+| Shell-exit mode (no `SHARE`/`INC`) gets `fc -AI` flush at `chpwd`, gated to that mode | Without an explicit flush, in-memory entries get wiped at the `HISTSIZE=0; fc -R newfile` step before reaching disk. The rewrite-block hazard doesn't apply in shell-exit mode because there's no concurrent reader. |
 | Tee writes the *inactive* store on every command, in extended-history format unconditionally | Keeps both stores ever-growing regardless of mode. `EXTENDED_HISTORY` is treated as display-only because `SHARE_HISTORY`'s incremental writer forces extended format internally — mixed format on disk perturbs the per-process `lasthist` tracker. |
 | Tee uses zsh's actual lock protocol | Without it, multi-syscall writes (large pasted blobs) can interleave with stock zsh's incremental writers on the same file. |
-| Optional native helper module | Calls zsh's own `lockhistfile`/`unlockhistfile` directly, plus a clean ring-replace builtin that avoids the 2-entry leak inherent to `HISTSIZE=2; fc -R`. Plugin gracefully falls back to pure-shell when not built. |
+| Optional native helper module | Calls zsh's own `lockhistfile`/`unlockhistfile` directly, plus a clean ring-replace builtin that avoids the 2-entry leak inherent to `HISTSIZE=2; fc -R`. Adds a `contextual-history-fast-refresh` builtin that preserves `HIST_FOREIGN` through widget-time refreshes (used by the fzf widget's local/all toggle). Plugin gracefully falls back to pure-shell when not built. |
 | Configurable contextual grouping | Per-directory granularity is too fine for project work. Walking up to a marker (`.histroot`, `.git`) gives one history file per project; stop-points bound the walk. |
+| Opt-in fzf widget (`contextual-history-fzf-widget`) | fzf's stock `^R` widget reads `$history` (blind to `HIST_FOREIGN`) or `fc -l` (sees `*` but strips it in display). Our widget feeds fzf from `fc -lir` directly, tags each record `L`/`F`, and uses fzf's query-filter mechanism for the local/all toggle. Retrieval via `zle vi-fetch-history -n` sidesteps the documented `${(kv)history[@]}` foreign-lag bug. |
+| Local-writes set for fzf L/F tagging | Raw `HIST_FOREIGN` means "loaded via `HFILE_FAST` since shell start" — zsh's startup load (`init.c:1395`) doesn't set it, and ring replacement (toggle / chpwd) reassigns histnums on reload, so neither flag nor histnum can carry a stable "this shell typed it" bit. The fzf integration tracks each write's `(stim, text)` in an associative array at the addhistory hook and looks it up in the snapshot via `fc -lirt '%s'`. Stable across ring replacement (key is on-disk identity, not histnum). Empirically full-text storage is cheapest at write AND read time vs. hashing alternatives. |
+| Local-history navigation filter | Opt-in keybind that wraps `up-history` / `down-history` / `up-line-or-history` etc. so they skip entries not in this shell's `_context_history_local_texts` set. Mechanism is purely the existing widget wrap plus a skip loop calling the underlying widget repeatedly until `BUFFER` matches or `HISTNO` stops advancing. No new hooks, no cache invalidation — the text set is shell-lifetime stable and shared with the fzf integration. |
+| Per-widget wrap generation | The widget-wrap machinery generates one wrap function per widget (`_context-history-wrap-<widget>`) with the canonical widget name hard-coded, dispatching through a shared `_context-history-wrap-impl` helper. Hard-coding side-steps the case where another plugin (notably zsh-autosuggestions) re-binds our wrap under a renamed alias and dispatches into it through that alias — `$WIDGET` then becomes the alias, but the canonical name we need for `orig_widgets` lookup and local-history scoping is still correct. |
+| File structure | Core history behaviour (`$HISTFILE` swap, tee, replace-ring, share-compat) is in `contextual-history.zsh`. Widget-wrap machinery is in `contextual-history-widgets.zsh`. Opt-in keybind features (local-history filter) are in `contextual-history-keybinds.zsh`. fzf integration is in `contextual-history-fzf.zsh`. The main plugin auto-sources the siblings; each has its own first-precmd hook for any installation it needs. |
 
 ----------------------------------------------------------------------------
 
@@ -120,7 +125,7 @@ its entire incremental merge. No error, no log, just stale data.
 
 The fix: removed the `fc -AI` calls in the swap functions entirely.
 For SHARE/INC the entries are already on disk via incremental writes —
-nothing to flush. For mode N see below.
+nothing to flush. For shell-exit mode see below.
 
 ----------------------------------------------------------------------------
 
@@ -138,18 +143,18 @@ the rewrite block.
 
 ----------------------------------------------------------------------------
 
-## Mode-N flush: explicit, isolated from the cross-shell hazard
+## Shell-exit-mode flush: explicit, isolated from the cross-shell hazard
 
-In mode N (neither `SHARE_HISTORY` nor `INC_APPEND_HISTORY`), zsh
+In shell-exit mode (neither `SHARE_HISTORY` nor `INC_APPEND_HISTORY`), zsh
 doesn't write incrementally; commands are saved at shell exit. So a
 `chpwd`-triggered ring-replace would discard pending in-memory
 entries that haven't yet reached disk.
 
-The fix: in mode N specifically, do `fc -AI "$HISTFILE"` before the
+The fix: in shell-exit mode specifically, do `fc -AI "$HISTFILE"` before the
 swap (`test_p14_mode_n_chpwd_flush.zsh` verifies this). Safe in mode
 N because the rewrite-block hazard only damages *concurrent*
 SHARE_HISTORY readers, and by definition there are no concurrent
-SHARE readers in mode N. The user has explicitly opted out of the
+SHARE readers in shell-exit mode. The user has explicitly opted out of the
 live-merge mechanism.
 
 ----------------------------------------------------------------------------
@@ -215,6 +220,405 @@ the module is loaded.
 
 ----------------------------------------------------------------------------
 
+## fzf widget and the foreign-tag preservation problem
+
+zsh exposes a single bit of per-entry provenance to userspace: the
+`HIST_FOREIGN` flag, set on entries pulled in via `SHARE_HISTORY`'s
+hend-merge and printed as `*` in `fc -l` output. It's the only
+mechanism in stock zsh for distinguishing entries this shell wrote
+from entries that arrived from peers.
+
+The flag is fragile: it's set only by `readhistfile` calls that
+include the `HFILE_FAST` flag (`Src/hist.c:2706-2708`). Inside zsh
+there are exactly two callers with `HFILE_FAST`: the hend-merge
+itself, and (indirectly) the rewrite-block. From script context,
+`fc -RI` is the closest equivalent — and it passes `HFILE_SKIPOLD`
+without `HFILE_FAST`, so `fc -RI` does NOT set `HIST_FOREIGN`.
+
+This matters for the plugin's nav-widget wrap layer (gated by
+`wrap-widgets`). The wrap fires inside history-navigation widgets
+and refreshes the in-memory history against the on-disk file so
+peer-shell writes are visible to the widget. If refresh uses `fc
+-RI`, every entry it pulls in is loaded as if this shell wrote it —
+laundering the foreign tag before any downstream consumer (fzf
+widget, custom ranker) can read it.
+
+### The native fast-refresh builtin
+
+`module/contextual_history.c` exposes `contextual-history-fast-refresh
+<file>`, a thin wrapper around `readhistfile(fn, 0, HFILE_USE_OPTIONS |
+HFILE_FAST | HFILE_SKIPOLD)`. The flag combination:
+
+- `HFILE_FAST` — the only way to set `HIST_FOREIGN` on new loads.
+- `HFILE_SKIPOLD` — sets `HIST_MAKEUNIQUE` on each candidate, which
+  `Src/hashtable.c:1424-1428` then converts to `HIST_DUP` when the
+  histtab already has the same text. Without this, the bare
+  `HFILE_FAST` path relies on per-process `lasthist.{fpos,stim,text}`
+  consistency that can be broken by external writes between SHARE
+  cycles — the searching=1 check fails, falls to searching=-1, and
+  entries with `stim >= lasthist.stim` get re-loaded as foreign
+  duplicates of local entries.
+- `HFILE_USE_OPTIONS` — matches the hend-merge's call.
+
+When the module is loaded, the nav-widget wrap automatically uses
+the builtin. When it isn't, the plugin falls back to `fc -RI` and
+the widget's local/all toggle becomes a no-op for entries that
+arrive mid-session (every entry appears local). The widget itself
+still works without the module — just without the discrimination
+for mid-session arrivals.
+
+### The widget design
+
+The fzf widget, its config knobs, and the auto-takeover hook live in
+`contextual-history-fzf.zsh` — a sibling file the main plugin sources
+automatically when present. This keeps `contextual-history.zsh`
+focused on the core `$HISTFILE`-swap / tee / SHARE-compat path.
+Users who want to skip the fzf code entirely can delete or rename
+the sibling.
+
+
+fzf's stock `^R` widget has two read paths
+(`shell/key-bindings.zsh`):
+
+- **Perl path** (default): reads `${(kv)history[@]}` via
+  `zsh/parameter`. That assoc array carries text only — no flag bits.
+  Foreign tag is invisible.
+- **awk fallback**: reads `fc -rl 1`. The regex
+  `^[ \t]*[0-9]+\**[ \t]+` explicitly strips the `*` column for
+  display.
+
+Both paths discard `HIST_FOREIGN` by design. Wrapping the widget
+can't fix this — the input is already laundered before it reaches
+fzf.
+
+`contextual-history-fzf-widget` reads `fc -lE 1` directly (preserving
+`*`), tags each record as `L` (no marker) or `F` (marker), and
+emits a tab-delimited record:
+
+```
+<flag>\t<histnum>\t<stim>\t<text>\0
+```
+
+(NUL-delimited so multi-line entries pass through `--read0`
+cleanly.)
+
+fzf is launched with `--with-nth=1,4..` — display the flag column
+joined with the text column, hide histnum/stim. The search target
+becomes `L echo hello` or `F ls -la`. Two binds use
+`transform-query` to flip the view by manipulating the user's query:
+`alt-l` prepends `^L ` (anchored prefix match against the joined
+display), `alt-a` strips it. No `reload`, no subprocess fork per
+toggle, and the user's free-text query is preserved across flips.
+
+Selection retrieval uses `zle vi-fetch-history -n <histnum>` —
+fzf upstream uses the same approach in their awk fallback to dodge
+the documented lag bug in `${(kv)history[@]}` for foreign entries
+(see `zsh.org/mla/users/2024/msg00692.html`).
+
+The snapshot is taken once when fzf launches. Within an open
+session it's fixed: `HIST_FOREIGN` is in-memory state only, no
+subprocess can recompute it. Refresh by closing fzf and re-pressing
+the bind.
+
+### The L/F semantic and the local-writes set
+
+A natural user assumption is "L = I typed this in this shell;
+F = somebody else did." Raw `HIST_FOREIGN` doesn't deliver that.
+What `HIST_FOREIGN` actually means, per `Src/hist.c:2706-2708`, is:
+
+> set on entries newly loaded by a `readhistfile` call that passed
+> `HFILE_FAST` — i.e. either zsh's own `SHARE_HISTORY` hend-merge or
+> our `contextual-history-fast-refresh` builtin.
+
+Two places in zsh's history machinery load entries without
+`HFILE_FAST`:
+
+- **Startup load** at `init.c:1395` — `readhistfile(NULL, 0, HFILE_USE_OPTIONS)`.
+- **`fc -R` / `fc -RI`** at `builtin.c:1501` — pass nothing or only
+  `HFILE_SKIPOLD`.
+- **Ring replacement** inside our own `contextual-history-replace-ring`
+  builtin and pure-shell fallback — both call `readhistfile(fn, 0/1,
+  HFILE_USE_OPTIONS)` or `fc -R` without `HFILE_FAST`.
+
+Entries loaded by any of these get `HIST_OLD | HIST_READ` but no
+`HIST_FOREIGN`. So everything already on disk at shell start —
+including entries a peer shell wrote yesterday in this exact
+directory — comes in as "non-foreign". A naive snapshot tags them
+L, which violates the user's intuition.
+
+**The fix** is a (stim, text) identity set populated at every
+`zshaddhistory` hook firing:
+
+```zsh
+_context_history_local_writes[${EPOCHSECONDS}:${chline}]=1
+```
+
+The main plugin's `_context-history-addhistory` writes this set
+unconditionally (gated on the array's existence so the main plugin
+stays agnostic to fzf when fzf isn't loaded). At snapshot time, the
+fzf widget reads `fc -lirt '%s' 1` — using fc's custom-format option
+(`builtin.c:1788`: `tdfmt = OPT_ARG(ops,'t')`) — to emit each ring
+entry's Unix-epoch stim alongside text. For each entry, the
+`${stim}:${text}` key is looked up in the set:
+
+- hit → **L** (this shell typed it, somewhere in its lifetime).
+- miss → **F** (pre-existing on disk, or written by a peer).
+
+The crucial property: this **survives ring replacement**. Histnums
+are reassigned every time `readhistfile` populates a fresh ring (via
+`prepnexthistent` in the loop, `hist.c:2790`), so any histnum-keyed
+flag would go stale at every toggle/chpwd. But `stim` and `text` are
+preserved on reload (read from the file's
+`: stim:elapsed;text\n` lines), so the same on-disk entry has the
+same lookup key whatever ring it's currently in. Our typing stays
+L across `^G` toggles, across `chpwd` swaps, across as many cycles
+as the user wants. `test_p31_local_across_swap.zsh` pins this.
+
+Memory: ~170 bytes per assoc entry (zsh's HashNode overhead
+dominates over the key string itself). Bounded by this shell's
+typing rate — typical session is hundreds of entries, ~30KB; a
+marathon 10k-write session is ~1.7MB.
+
+False-positive case: a peer shell writes the *exact* same command
+text in the *exact* same second as us. Vanishingly rare in practice.
+
+`test_p30_foreign_tag_semantics.zsh` and
+`test_p31_local_across_swap.zsh` pin all four classification cases
+plus the across-swap stability.
+
+### Rejected alternatives
+
+Two designs were considered and dropped in favour of the
+(stim, text) set:
+
+1. **Mark pre-existing entries `HIST_FOREIGN` via a native builtin.**
+   A new builtin would walk `hist_ring` once at first precmd and
+   set `HIST_FOREIGN` on every entry already there. The snapshot
+   could then read `HIST_FOREIGN` directly. Rejected because zsh
+   uses `HIST_FOREIGN` in places beyond display:
+
+   - **`fc -L`** (`builtin.c:1806`) filters foreign entries OUT of
+     its listing. After the mark, `fc -L` would silently exclude
+     everything pre-existing — a user-visible behaviour change in
+     a stock builtin.
+   - **`hcomsearch`** (`hist.c:1820`, used for `?foo?` reverse-
+     search history expansion) and **`hconsearch`** (`hist.c:1843`,
+     used for `!foo` history expansion) skip `HIST_FOREIGN`
+     entries. Marking pre-existing entries foreign means `!ls`
+     would no longer match a prior session's `ls`.
+
+   The (stim, text) approach is local to our widget: it gives us
+   the L/F semantic for display purposes without perturbing any
+   zsh-level behaviour.
+
+2. **Startup-curhist baseline.** An earlier prototype captured
+   `HISTCMD - 1` at first precmd and classified entries by
+   `histnum > baseline AND not HIST_FOREIGN`. This works within
+   a single ring's lifetime but breaks at every ring replacement
+   because the new ring's entries get fresh histnums starting from
+   `curhist + 1` — every loaded entry then satisfies
+   `histnum > old_baseline` and gets tagged L, including ones the
+   user typed in a prior session or that peers wrote. Trying to
+   re-capture the baseline at every swap is also wrong: it
+   reclassifies the user's earlier-in-session typing as F.
+   Histnum is the wrong identity for cross-swap stability.
+
+3. **Hashing the text before storing.** An obvious memory
+   optimization: store `(stim, hash(text))` instead of
+   `(stim, text)`. Empirical benchmarking showed hashing in pure
+   shell (djb2) costs ~7× more CPU at write time than just storing
+   the text, and ~25× more at read time, while saving only ~20%
+   memory (because zsh's per-assoc-entry overhead dominates over
+   key length). External `cksum` is ~75× more expensive than
+   no-hash due to fork. The CPU cost dwarfed any memory benefit,
+   so full-text storage wins on both dimensions.
+
+----------------------------------------------------------------------------
+
+## Local-history navigation filter
+
+A sibling of the fzf widget's L/F view: the user picks a keybind that
+toggles "scroll only through entries this shell typed" for the
+standard history-navigation widgets (`up-history`, `down-history`,
+`up-line-or-history`, the search variants, etc.). Conceptually this
+gives the same filter that fzf's `alt-l` provides inside the picker,
+but for the raw up/down nav UX outside fzf.
+
+Implementation lives in `contextual-history-keybinds.zsh`, a sibling
+file the main plugin auto-sources. That file is the container for
+keybind-driven opt-in features; local-history is the first inhabitant,
+but the file name is the generic shape so future opt-in keybind
+features can be added without proliferating one file per feature.
+
+### Mechanism
+
+The piece-list is intentionally minimal:
+
+- **A mode bit** `_context_history_local_mode` (0/1).
+- **A text-only assoc set** `_context_history_local_texts`, populated
+  at every `zshaddhistory` hook firing — the same hook that already
+  writes the `(stim, text)` set for the fzf widget. Sibling
+  invariant: every command this shell adds populates both sets.
+- **A toggle widget** that flips the mode bit and `zle -M`'s the new
+  state.
+- **A skip loop** inside the existing `_context-history-refreshing-widget`
+  wrap. After dispatching to the underlying widget, if local-history
+  mode is on and the just-loaded `BUFFER` isn't in the text set,
+  dispatch the underlying widget again. Bail on boundary (`HISTNO`
+  unchanged) or a safety cap (10000 iterations).
+
+No additional hooks. No cache invalidation. No ring-swap rebuild.
+The text set is shell-lifetime stable; histnums and the ring change
+under it but the set's identity (text) is the same.
+
+### Why text-only and not (stim, text)
+
+Within a single keystroke we have `$BUFFER` (the just-loaded entry's
+text) but not the corresponding stim. `$history` exposes text only;
+getting stim per ring entry would require `fc -lt '%s'` parsing or
+the native module — too expensive for per-keystroke navigation.
+
+The fzf widget uses `(stim, text)` because it walks all entries once
+per invocation in a single fc call — it gets stim for free. The
+nav filter doesn't have that luxury.
+
+Trade-off: a peer-shell that ever typed identical text to ours will
+be marked walkable. For navigation UX this is a one-extra-keystroke
+glitch in a very rare case. Not worth the complexity of carrying
+stim per HISTNO.
+
+### Why no incremental-search support
+
+`history-incremental-search-{backward,forward}` enter a stateful mode
+that reads characters and re-runs the search. The skip-after-dispatch
+pattern doesn't compose: each dispatch puts the widget into an
+inner read loop. Excluded from `CONTEXTUAL_HISTORY_LOCAL_WIDGETS`
+by default. Incremental search behaves as today.
+
+### Composition with the existing wrap
+
+The `_context-history-refreshing-widget` wrap already exists to do
+mtime-gated refresh (`fc -RI` or the native fast-refresh) before
+each nav widget invocation. Local-history rides the same wrap:
+dispatch to the underlying widget remains a single helper
+(`_context-history-dispatch-original`), called once for the normal
+case and additionally by the skip loop. Refresh + skip-loop compose
+cleanly because refresh runs once before any skip iteration.
+
+Verified by `test_p32_local_skip.zsh`: pre-seed a peer entry, press
+up enough times to find it (local-history off), then reset, toggle
+local-history on, press up many times — the peer entry is never
+reached.
+
+### Edge cases
+
+- **Same-text peer collision.** The lookup is text-only (see "Why
+  text-only" above). If a peer shell ever typed exactly the same
+  command text as you, the local-history filter treats it as yours.
+  Worst case is one extra step that lands on a peer entry whose text
+  you'd have produced yourself. Acceptable.
+- **Prior-session entries are not "yours".** Entries already on disk
+  when this shell started — including your own typing from a prior
+  session — aren't in `_context_history_local_texts`. They're
+  skipped under local-history mode. Symmetric with the fzf widget's
+  L/F semantic: "L" means "typed in *this* shell", not "I typed it
+  some time".
+
+### Configuration overrides
+
+Three knobs control the wrap layer:
+
+- `CONTEXTUAL_HISTORY_WRAP_WIDGETS` / `wrap-widgets` (default `true`).
+  Master switch: install our wraps around the history-nav widgets at
+  all? Set `false` to leave zsh's history widgets untouched. Doing
+  so disables both idle peer visibility (under `SHARE_HISTORY`, peer
+  writes only land in this shell's in-memory history at `hend` time
+  — i.e. after the next command runs; without the wrap, pressing up
+  between commands sees a stale view) and the local-history filter
+  (the skip loop lives inside this same wrap). Exposed in the
+  user-facing config table.
+- `CONTEXTUAL_HISTORY_REFRESHING_WIDGETS` / `refreshing-widgets`
+  (default: all standard nav widgets). Override which widgets get
+  the refresh wrap. Useful if a third-party plugin defines a custom
+  nav widget you want included, or to exclude a specific widget.
+- `CONTEXTUAL_HISTORY_LOCAL_WIDGETS` / `local-widgets` (default:
+  same set minus incremental search). Subset of `refreshing-widgets`
+  that ALSO get the local-history skip-loop. Used when you want a
+  widget refreshed but NOT filtered.
+
+----------------------------------------------------------------------------
+
+## zsh-autosuggestions strategies
+
+Two suggestion strategies in `contextual-history-autosuggest.zsh`:
+`contextual_history` and `contextual_match_prev_cmd`. Both are
+walk-local-aware ports of upstream's `history` and `match_prev_cmd`
+strategies, sharing prefix-escape and `ZSH_AUTOSUGGEST_HISTORY_IGNORE`
+handling with the upstream source so behaviour matches when
+local-history mode is off.
+
+### Why a port instead of stock + a wrapper
+
+Stock strategies operate on `$history`. Our context-vs-global toggle
+already swaps `$history` wholesale, so stock strategies follow that
+axis for free. They don't know about the local-history mode bit
+though, and there's no upstream hook for "filter the candidate list
+before I pick". The cheapest fix is a per-strategy port that
+consults `_context_history_local_texts` directly.
+
+### Algorithm
+
+`contextual_history`:
+
+- Local-history off: identical to upstream — single
+  `${history[(r)PATTERN]}` subscript, returning the newest entry
+  whose text starts with the user's buffer prefix.
+- Local-history on: pulls the keys of `$history` whose values match
+  the pattern (newest-first by iteration order), and returns the
+  first whose text appears in `_context_history_local_texts`.
+  `O(1)` membership check; loop bails on first hit.
+
+`contextual_match_prev_cmd`:
+
+- Build candidate keys by `${(k)history[(R)$~pattern]}` — same as
+  upstream.
+- When local-history mode is on, drop candidates whose text is not in
+  `_context_history_local_texts`.
+- Default suggestion = newest remaining candidate. Then walk up to
+  200 candidates (mirroring upstream's cap), upgrading to one whose
+  *preceding* history entry equals `${history[$((HISTCMD-1))]}` (the
+  user's last-executed command). The preceding-entry comparison is
+  upstream's logic unchanged — operating on the already-filtered
+  candidate list.
+
+We deliberately don't add a "preceding entry must also be in local
+texts" check on top: the preceding-entry comparison is by text, the
+last-executed command is always in our local-texts set (addhistory
+saw it), so the additional check would be redundant in every
+common case and could only matter under a rare race (peer write
+between this shell's `enter` and the keystroke that triggers
+autosuggest, such that `HISTCMD-1` happens to point to peer text).
+
+### Toggle responsiveness
+
+zsh-autosuggestions only recomputes on buffer change, so toggling
+either filter axis would leave a stale suggestion until the next
+keystroke. The shared `_context-history-print-status` helper (used
+by both toggle widgets) emits `zle autosuggest-fetch` after flipping
+the bit, guarded by `${+widgets[autosuggest-fetch]}` so the
+dependency stays soft if autosuggestions isn't loaded.
+
+### Why two strategies, not one
+
+Upstream's `history` and `match_prev_cmd` make different bets about
+what predicts the user's intent. Users who prefer `history` get
+`contextual_history`; users who prefer `match_prev_cmd` get
+`contextual_match_prev_cmd`. Chaining the two via
+`ZSH_AUTOSUGGEST_STRATEGY=(A B)` would not give clean local-history
+semantics — see the user-facing README for the trade-off discussion.
+
+----------------------------------------------------------------------------
+
 ## Contextual grouping
 
 Per-physical-directory granularity is often too fine. A user with one
@@ -256,7 +660,7 @@ For transparency about the discovery process:
    merge in the first place. The recall doesn't go stale; it just
    never gets fresh data from the per-dir file.
 
-3. **First fix attempt**: gate `fc -AI` to mode N. **Insufficient**:
+3. **First fix attempt**: gate `fc -AI` to shell-exit mode. **Insufficient**:
    the rewrite-block hazard exists in `fc -P` too, and we'd hit it
    if we used `fc -p`/`fc -P` for the swap.
 
@@ -265,7 +669,7 @@ For transparency about the discovery process:
    isolation). **Rejected**: `fc -P` triggers the same rewrite block
    as `fc -AI`. There's no script-level escape.
 
-5. **Final design**: direct `$HISTFILE=` swap; mode-N-gated `fc -AI`
+5. **Final design**: direct `$HISTFILE=` swap; shell-exit-mode-gated `fc -AI`
    for non-incremental flush; lock-coordinated tee in extended format
    for the inactive store; optional native module for tighter lock
    coordination + clean ring replacement; contextual-grouping resolver
@@ -283,7 +687,7 @@ a user-visible behavioural change that needs to be a documented
 opt-in choice, not a silent merge.
 
 It's also *not* a one-feature add. The set of changes
-(SHARE_HISTORY compat + mode-N flush + lock-coordinated tee + optional
+(SHARE_HISTORY compat + shell-exit-mode flush + lock-coordinated tee + optional
 native module + contextual grouping) is enough that this is more
 naturally a sibling project than a PR.
 
@@ -291,12 +695,18 @@ naturally a sibling project than a PR.
 
 ## Test coverage
 
-25 PTY-based scenario tests under `tests/`, each covering one
-behaviour grounded above. Run `make test` for the full matrix (both
-module configs); `make test-upstream` runs the same suite against the
-unmodified upstream plugin to demonstrate which findings translate
-to specific test failures on upstream master.
+32 PTY-based scenario tests under `tests/`, each covering one
+behaviour grounded above. Tests `p26`-`p31` cover the fzf integration
+(snapshot tagging, multi-shell SHARE filter toggle, no-module
+degradation, the `fzf-integration` load gate, the L/F semantic, and L tag
+preservation across ring replacement). Test `p32` covers the
+local-history navigation filter.
 
-Today's matrix outcome: 50/50 green on the fork (with module),
+Run `make test` for the full matrix (both module configs);
+`make test-upstream` runs the same suite against the unmodified
+upstream plugin to demonstrate which findings translate to specific
+test failures on upstream master.
+
+Today's matrix outcome: 64/64 green on the fork (with module),
 9 fork-fixed bugs failing on upstream, 6 baseline tests passing on
 both.

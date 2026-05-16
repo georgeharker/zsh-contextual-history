@@ -1,7 +1,7 @@
 /*
  * contextual_history.c - native helper module for the contextual-history zsh plugin.
  *
- * Provides two builtins:
+ * Provides three builtins:
  *
  *   contextual-history-tee <file> <command>
  *     Append one command line to <file> in extended-history format while
@@ -16,6 +16,17 @@
  *     the previous context (zsh's histsiz minimum is 2). Walks
  *     hist_ring + freehistnode for every entry, resets curhist /
  *     histlinect, then calls readhistfile().
+ *
+ *   contextual-history-fast-refresh <file>
+ *     Incremental merge from <file> with HFILE_FAST semantics - same
+ *     readflags zsh's own SHARE_HISTORY hend-merge uses
+ *     (HFILE_USE_OPTIONS | HFILE_FAST). Entries newly loaded get
+ *     HIST_FOREIGN, making `fc -l`'s `*` column meaningful for entries
+ *     pulled in by widget-time refreshes. The pure-shell fallback
+ *     (`fc -RI`) uses HFILE_SKIPOLD, which does NOT set HIST_FOREIGN
+ *     and so launders the local/foreign distinction. Used by the
+ *     wrap-widgets refresh path and the fzf widget to preserve
+ *     foreignness between hend merges.
  *
  * Module name (zsh side): `zsh/contextual_history`. The plugin loads via:
  *     zmodload zsh/contextual_history
@@ -227,10 +238,43 @@ bin_contextual_history_replace_ring(char *nam, char **argv, UNUSED(Options ops),
     return 0;
 }
 
+/*
+ * contextual-history-fast-refresh <file>
+ *
+ * Incremental merge that marks newly loaded entries HIST_FOREIGN.
+ * Same readflags as SHARE_HISTORY's hend-merge (Src/hist.c:1518),
+ * plus HFILE_SKIPOLD for histtab-based dedup.
+ *
+ * Why all three flags:
+ *   HFILE_FAST       sets HIST_FOREIGN on new loads (the whole point).
+ *   HFILE_SKIPOLD    sets HIST_MAKEUNIQUE so duplicates against the
+ *                    in-memory ring are dropped before insertion.
+ *                    Without it, an out-of-hend invocation against a
+ *                    stale lasthist.fpos can re-read entries we
+ *                    already have, marking them foreign-as-duplicate.
+ *   HFILE_USE_OPTIONS  honours the user's history-option settings.
+ *
+ * readhistfile manages lockhistfile/unlockhistfile internally.
+ * See INTERNALS.md "The native fast-refresh builtin" for the full
+ * rationale.
+ */
+static int
+bin_contextual_history_fast_refresh(char *nam, char **argv, UNUSED(Options ops), UNUSED(int func))
+{
+    char *file = argv[0];
+    if (!file) {
+        zwarnnam(nam, "usage: contextual-history-fast-refresh <file>");
+        return 1;
+    }
+    readhistfile(file, 0, HFILE_USE_OPTIONS | HFILE_FAST | HFILE_SKIPOLD);
+    return 0;
+}
+
 /* Builtin descriptor: name, flags, fn, min_args, max_args, func, optstr, defargs. */
 static struct builtin bintab[] = {
     BUILTIN("contextual-history-tee",          0, bin_contextual_history_tee,          2, 2, 0, "", NULL),
     BUILTIN("contextual-history-replace-ring", 0, bin_contextual_history_replace_ring, 1, 1, 0, "", NULL),
+    BUILTIN("contextual-history-fast-refresh", 0, bin_contextual_history_fast_refresh, 1, 1, 0, "", NULL),
 };
 
 static struct features module_features = {

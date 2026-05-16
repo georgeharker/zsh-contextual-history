@@ -34,7 +34,7 @@ TEST_SHARE_HISTORY=1 pty_spawn shellA "$HISTROOT" \
 # Toggle to global mode. The widget swaps HISTFILE to the user's
 # captured global file and reloads the ring from it.
 pty_press_ctrlg shellA
-# The toggle widget prints "using global history" and calls zle -I.
+# The toggle widget prints a status line via zle -M and calls zle -I.
 # Submit empty BUFFER to fire hend/hbegin and reset histline=curhist
 # for the swapped ring.
 pty_press_enter shellA

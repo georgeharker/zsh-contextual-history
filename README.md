@@ -1,64 +1,63 @@
 zsh-contextual-history
 ======================
 
-Per-directory (or per-project, or arbitrary "context") shell history for zsh,
-with full `SHARE_HISTORY` / `INC_APPEND_HISTORY` compatibility.
+Share history across all shells — then filter what you see down to
+whatever scope you want: every shell, this project's directory, or
+just commands you typed in this shell.
 
-A history file is selected based on a configurable **resolver** that maps
-your current `$PWD` to a "context key". The default resolver gives you one
-history file per absolute directory (the original
-[per-directory-history][upstream] behaviour). With a one-line config you
-can group all subdirectories under any project marker (`.git`, `.histroot`,
-`Cargo.toml`, etc.) into one shared history. You can also drop in a
-fully custom resolver function for arbitrary grouping logic.
-
-The fork preserves the original toggle behaviour (`^G` flips between
-context-history and global-history), and adds:
-
-- Live cross-terminal merge in the same context via `SHARE_HISTORY` (the
-  upstream plugin silently broke this — see [Why this fork](#why-this-fork-exists))
-- Configurable contextual grouping (markers / project roots / custom)
-- Optional native zsh module for tighter lock coordination on the tee
-  writes, plus a clean ring-replace builtin (see [module/README.md][modr])
-- A scenario-based test matrix that exercises both pure-shell and
-  native-module paths against `SHARE` / `INC_APPEND` / both / neither
-
-Status: 25 PTY scenarios, run under both pure-shell and native-module
-paths — 50/50 green when the module is built, 25/25 + 25 skips when it
-isn't. Coverage spans single-shell flow, two- and three-shell SHARE/INC
-late-join and ordering, repeated mode toggles, chpwd with concurrent
-peer reader, group-by × multi-shell × toggle interactions, fcntl-lock
-contention, paths with spaces, and custom-resolver edge cases (empty key,
-whitespace key).
+A `SHARE_HISTORY`-compatible fork of [per-directory-history][upstream]
+that adds two orthogonal filter axes, an fzf-based search picker, and
+a zsh-autosuggestions-aware suggestion strategy.
 
 [upstream]: https://github.com/jimhester/per-directory-history
 [modr]: module/README.md
 
-----------------------------------------------------------------------------
-Usage
-----------------------------------------------------------------------------
+## Features at a glance
+
+| Feature | What it does | How to use |
+|---|---|---|
+| Context vs global | One history file per directory or project, with a toggle to fall back to your global history. | `^G` (default; configurable) |
+| Local-history filter | Up-arrow walks only commands this shell typed, skipping other-shell and prior-session entries. | Off by default. Toggle with `local-toggle-key`, or pin it on with `start-with-local true`. |
+| fzf integration | `^R`-style picker that shows the same toggles inline, so you can flip between "this shell" / "all shells" without leaving the picker. | Auto-loaded if `fzf` is on `$PATH` |
+| Autosuggestions strategy | Inline grey suggestion respects both filter axes. | Opt-in via `ZSH_AUTOSUGGEST_STRATEGY` |
+
+The two filter axes are independent — context-vs-global and
+local-vs-all-shells — giving four navigation slices:
+
+|                       | Context (per-dir or per-project) | Global |
+|-----------------------|----------------------------------|--------|
+| **All shells**        | Every entry typed in this context  | Every entry on this machine |
+| **This shell only**   | Just what you typed here, in this context | Just what you typed in this shell |
+
+Both toggles emit a `zle -M` status line covering the current state,
+e.g. `history: context | this-shell only (12 entries)`.
+
+## Quickstart
 
 ```zsh
-# In your .zshrc, BEFORE sourcing the plugin:
-
-# Optional: group history by project root rather than per-directory.
-zstyle ':contextual-history:*' group-by .histroot .git
-# Equivalent env-var form: CONTEXTUAL_HISTORY_GROUP_BY=(.histroot .git)
-
-# Optional: don't walk above $HOME looking for markers.
-zstyle ':contextual-history:*' group-stops $HOME
-# Equivalent env-var form: CONTEXTUAL_HISTORY_GROUP_STOPS=($HOME)
-
+# .zshrc
 source /path/to/contextual-history.zsh
 ```
 
-Every setting accepts both forms — pick whichever fits your dotfile
-style. The full mapping is in the [Configuration](#configuration)
-section below; if a setting is set both ways, the env var wins.
+That's enough to get per-directory history + the `^G` global-toggle.
+Common additions:
 
-Press `^G` to toggle between the active context's history and your global
-history. The toggle key is configurable via the `toggle-key` zstyle (or the
-`CONTEXTUAL_HISTORY_TOGGLE` env var).
+```zsh
+# Group history by project root (any of these markers) rather than
+# strictly per-directory.
+zstyle ':contextual-history:*' group-by .git .histroot
+
+# Bind the local-history toggle so up-arrow can filter to this shell.
+zstyle ':contextual-history:*' local-toggle-key '^X^L'
+
+# Use the autosuggestions strategy that respects both filters.
+# Add this line AFTER sourcing zsh-autosuggestions (it sets a default).
+ZSH_AUTOSUGGEST_STRATEGY=(contextual_history)
+```
+
+Every setting can be set as either a `zstyle` or an environment
+variable — pick whichever fits your dotfiles. See [Configuration](#configuration)
+for the full list.
 
 ----------------------------------------------------------------------------
 Contextual grouping
@@ -126,46 +125,49 @@ honours the `group-stops` zstyle / `CONTEXTUAL_HISTORY_GROUP_STOPS` env var.
 Configuration
 ----------------------------------------------------------------------------
 
-Every setting can be configured **either** as an environment variable
-**or** via `zstyle` — pick whichever your dotfiles already use. Both
-forms are fully supported; the mapping table below lists both side by
-side.
+Every setting can be configured as either an environment variable or
+a `zstyle` — both are fully supported. Resolution at plugin source
+time: env var → `zstyle ':contextual-history:*' <key>` → built-in
+default.
 
-Resolution order at plugin source time:
+Each row below lists the env-var name on the first line and the
+zstyle key on the second. Either form sets the same internal
+variable.
 
-1. If the env var is already set, use it.
-2. Otherwise look up `zstyle ':contextual-history:*' <key>`.
-3. Otherwise apply the built-in default.
+### Core settings
 
-The plugin reads only the canonical env-var name internally, so the
-hot path stays a plain `$VAR` lookup. Setting via zstyle just
-populates that variable at source time.
+| Setting | Default | Effect |
+|---|---|---|
+| `HISTORY_BASE`<br>`history-base` | `$HOME/.directory_history` | Where per-context history files live. |
+| `HISTORY_START_WITH_GLOBAL`<br>`start-with-global` | `false` | Start in global history mode rather than per-context. |
+| `CONTEXTUAL_HISTORY_TOGGLE`<br>`toggle-key` | `^G` | Keybind to flip between context-history and global-history. |
+| `CONTEXTUAL_HISTORY_GROUP_BY`<br>`group-by` | `()` | Ordered marker filenames for the default resolver. With `(.git .histroot)`, all subdirectories under a `.git` (or `.histroot`) root share one history file. See [Contextual grouping](#contextual-grouping). |
+| `CONTEXTUAL_HISTORY_GROUP_STOPS`<br>`group-stops` | `()` | Walk-up boundary paths. Reaching one without finding a marker fails the search and falls back to per-directory. |
+| `CONTEXTUAL_HISTORY_LOCAL_KEY`<br>`local-toggle-key` | `''` (unbound) | Keybind for the local-history toggle (skip peer-shell entries on up-arrow). Opt-in. See [Local-history filter](#local-history-navigation-filter). |
+| `CONTEXTUAL_HISTORY_START_WITH_LOCAL`<br>`start-with-local` | `false` | Start new shells in local-history mode. Independent of `local-toggle-key` — you can pin the mode on without binding a key. |
+| `CONTEXTUAL_HISTORY_WRAP_WIDGETS`<br>`wrap-widgets` | `true` | Install our wraps around zsh's history-navigation widgets. The wraps deliver idle peer visibility on up-arrow (without them, pressing up between commands under `SHARE_HISTORY` walks a stale view) and provide the scope for the local-history filter. Set `false` to leave zsh's history widgets untouched. |
+| `CONTEXTUAL_HISTORY_FZF_INTEGRATION`<br>`fzf-integration` | `true` | Load the fzf integration if `fzf` is on `$PATH` at source time. See [fzf integration](#fzf-integration). |
+| `CONTEXTUAL_HISTORY_USE_MODULE`<br>`use-module` | `false` | Load the locally-built native helper module (avoids the 2-entry ring-replace leak; preserves `HIST_FOREIGN` on idle refreshes). See [Optional native helper module](#optional-native-helper-module). |
+| `CONTEXTUAL_HISTORY_DEBUG`<br>`debug` | `false` | Print `[ch-dbg] ...` lines to stderr at key transitions (mode swap, chpwd, tee fallback). |
 
-### zstyle context
+A handful of rarely-needed override knobs (which widgets get
+wrapped, whether the nav-widget mtime refresh is active) live in
+INTERNALS.md alongside the mechanism they control.
 
-```zsh
-zstyle ':contextual-history:*' use-module       true
-zstyle ':contextual-history:*' refresh-on-nav   true
-zstyle ':contextual-history:*' toggle-key       '^G'
-zstyle ':contextual-history:*' group-by         .histroot .git
-zstyle ':contextual-history:*' group-stops      $HOME
-zstyle ':contextual-history:*' history-base     ~/.directory_history
-zstyle ':contextual-history:*' debug            false
-```
+### fzf-integration settings
 
-### Mapping table
+Only consulted when the fzf integration loads. See
+[fzf integration](#fzf-integration) for narrative + wire-up examples.
 
-| Variable | zstyle key | Default | Effect |
-|----|----|----|----|
-| `HISTORY_BASE` | `history-base` | `$HOME/.directory_history` | Base dir for per-context history files. |
-| `HISTORY_START_WITH_GLOBAL` | `start-with-global` | `false` | If `true`, start in global mode rather than context mode. |
-| `CONTEXTUAL_HISTORY_TOGGLE` | `toggle-key` | `^G` | Keybinding to flip between context and global modes. |
-| `CONTEXTUAL_HISTORY_GROUP_BY` | `group-by` | `()` | Ordered marker list for the default resolver (single walk-up). |
-| `CONTEXTUAL_HISTORY_GROUP_STOPS` | `group-stops` | `()` | Walk-up boundary paths. Reaching one without a marker hit fails the search. |
-| `CONTEXTUAL_HISTORY_REFRESH_ON_NAV` | `refresh-on-nav` | `true` | Wrap each history-navigation widget (`up-history`, `down-history`, `history-search-*`, `history-incremental-search-*`, etc.) so it runs `fc -RI` immediately before reading `$history`, picking up cross-shell writes that landed while this shell was idle. Mtime-gated — steady-state cost is one `stat()` per widget invocation. Only meaningful with `SHARE_HISTORY`; otherwise a no-op. |
-| `CONTEXTUAL_HISTORY_USE_MODULE` | `use-module` | `false` | If `true`, prepend `module/` to `$module_path` so the optional native helper loads from the source tree without a system install. |
-| `CONTEXTUAL_HISTORY_DEBUG` | `debug` | `false` | If `true`, the plugin prints `[ch-dbg] ...` lines to stderr at key transitions (mode swap, chpwd, tee fallback). Off by default to avoid prompt noise. |
-| `CONTEXTUAL_HISTORY_REFRESHING_WIDGETS` | `refreshing-widgets` | (full list, see plugin) | Override which widgets get the refresh wrap. Rarely needed. |
+| Setting | Default | Effect |
+|---|---|---|
+| `CONTEXTUAL_HISTORY_FZF_BIND_CTRL_R`<br>`fzf-bind-ctrl-r` | `false` | At first precmd, bind `^R` to our widget if fzf's `fzf-history-widget` is also present. Off by default so users with custom `^R` bindings keep them. |
+| `CONTEXTUAL_HISTORY_FZF_VIEW`<br>`fzf-default-view` | `all` | Initial view: `local` (this shell only) or `all` (every entry). |
+| `CONTEXTUAL_HISTORY_FZF_LOCAL_KEY`<br>`fzf-toggle-local-key` | `alt-l` | fzf-internal bind to switch to local view. |
+| `CONTEXTUAL_HISTORY_FZF_ALL_KEY`<br>`fzf-toggle-all-key` | `alt-a` | fzf-internal bind to switch to all view. |
+| `CONTEXTUAL_HISTORY_FZF_PROMPT_LOCAL`<br>`fzf-prompt-local` | `'LOCAL> '` | fzf prompt string for local view. |
+| `CONTEXTUAL_HISTORY_FZF_PROMPT_ALL`<br>`fzf-prompt-all` | `'ALL> '` | fzf prompt string for all view. |
+| `CONTEXTUAL_HISTORY_FZF_EXTRA_OPTS`<br>`fzf-extra-opts` | `''` | Extra fzf opts appended after our defaults. Also honours upstream `FZF_CTRL_R_OPTS`. |
 
 ----------------------------------------------------------------------------
 Interaction with SHARE_HISTORY / INC_APPEND_HISTORY
@@ -198,18 +200,27 @@ writers on the same file.
 Optional native helper module
 ----------------------------------------------------------------------------
 
-The plugin ships with an optional zsh module providing two builtins:
+The plugin ships with an optional zsh module providing three builtins.
+It's not required for any feature — the pure-shell fallback works —
+but it sharpens behaviour in a few specific areas:
 
 - **`contextual-history-tee`** — the tee write, using zsh's own
   `lockhistfile`/`unlockhistfile` directly. Strictest possible
-  coordination, single-builtin call.
+  coordination with stock zsh's incremental writers, single-builtin
+  call.
 - **`contextual-history-replace-ring`** — clean in-memory ring replace.
   The pure-shell fallback (`HISTSIZE=2; HISTSIZE=$orig; fc -R newfile`)
   leaks 2 entries from the previous context because zsh's `histsiz`
   clamps at a minimum of 2. The native builtin walks the ring directly
-  and replaces it with no leak. Verified by the `test_p11`/`test_p12`
-  matrix, which asserts leak-present without the module and clean ring
-  with it.
+  and replaces it with no leak.
+- **`contextual-history-fast-refresh`** — refresh from disk preserving
+  the `HIST_FOREIGN` flag on newly-loaded entries (`HFILE_USE_OPTIONS |
+  HFILE_FAST | HFILE_SKIPOLD`). The pure-shell `fc -RI` fallback drops
+  the foreign flag, which means the fzf widget's L/F classification
+  (and the autosuggestions strategy's local-history filter) treat
+  newly-arrived peer entries as local until the next ring swap. With
+  the module, the foreign bit survives, so classification stays
+  correct in real time.
 
 ```sh
 cd module
@@ -231,12 +242,265 @@ cd module && make install
 source /path/to/contextual-history.zsh
 ```
 
-When the module is loaded, both the tee and the ring-replace paths use
-the native builtins automatically. When it isn't, the pure-shell
-fallback runs (which has the documented 2-entry leak on toggle/chpwd).
+With the module loaded, all three native builtins are used
+automatically. Without it, the pure-shell fallback runs (with the
+documented 2-entry ring-replace leak on toggle/chpwd, and `HIST_FOREIGN`
+not surviving mid-session refreshes).
 
 See [module/README.md][modr] for build details, troubleshooting, and a
 discussion of when the native lock actually matters.
+
+----------------------------------------------------------------------------
+Local-history navigation filter
+----------------------------------------------------------------------------
+
+> Makes up-arrow walk only commands you typed in this shell, skipping
+> entries other shells wrote or prior sessions left on disk.
+
+Off by default; the toggle bit is per-shell-instance and persists
+until you toggle off or the shell exits. Combine with `^G`
+(context/global) to navigate any of the four slices in the
+[axis grid above](#features-at-a-glance).
+
+To make the plugin leave zsh's history-navigation widgets alone
+entirely — falling back to their default behaviour — set
+`wrap-widgets false` (see [Configuration](#core-settings)).
+
+### Setup
+
+```zsh
+# Pick a key for the toggle (unbound by default).
+zstyle ':contextual-history:*' local-toggle-key '^X^L'
+
+# Optional: start new shells already in local-history mode.
+zstyle ':contextual-history:*' start-with-local true
+
+source /path/to/contextual-history.zsh
+```
+
+That binds your key in emacs, viins, and vicmd keymaps. Toggling
+either this widget or `^G` emits a `zle -M` status line showing both
+axes, e.g. `history: context | this-shell only (12 entries)` or
+`history: global | all shells`.
+
+### What it covers
+
+Applied to the standard history navigation widgets: `up-history`,
+`down-history`, `up-line-or-history`, `down-line-or-history`,
+`up-line-or-search`, `down-line-or-search`, `history-search-*`, and
+`history-beginning-search-*`. Incremental search (`history-incremental-search-*`)
+is intentionally excluded — its per-keystroke read loop doesn't
+compose with a skip-after-dispatch filter.
+
+For the mechanism, edge cases (peer-typed identical text, prior-session
+entries), and override knobs, see
+[INTERNALS — Local-history navigation filter][il].
+
+[il]: INTERNALS.md#local-history-navigation-filter
+
+----------------------------------------------------------------------------
+zsh-autosuggestions integration
+----------------------------------------------------------------------------
+
+> Makes the inline grey suggestion respect both filter axes — so what
+> you're being suggested matches what up-arrow would walk.
+
+Two opt-in suggestion strategies, parallel to upstream's two:
+
+- **`contextual_history`** — local-history-aware port of upstream's
+  `history` strategy (newest entry matching the prefix).
+- **`contextual_match_prev_cmd`** — local-history-aware port of
+  upstream's `match_prev_cmd` strategy (prefer an entry whose
+  preceding history entry equals your previously-executed command,
+  fall back to newest prefix match).
+
+Both strategies:
+
+- automatically scope to whichever history `^G` has currently
+  selected (context vs global) — they read from zsh's live history
+  parameter, and the `^G` toggle swaps that wholesale; and
+- when local-history mode is on, restrict suggestions to entries
+  this shell typed (and, for `contextual_match_prev_cmd`, also
+  require the preceding entry to be local — patterns are learned
+  from this shell's typing only).
+
+The integration lives in **`contextual-history-autosuggest.zsh`**,
+auto-sourced by the main plugin. The functions are just *defined*;
+nothing fires until you opt in below.
+
+### Setup
+
+```zsh
+# .zshrc — order of these two source lines is free
+source /path/to/zsh-autosuggestions.zsh
+source /path/to/contextual-history.zsh
+
+# Opt in to ONE of the two strategies. MUST be after sourcing
+# zsh-autosuggestions (it assigns a default at source time).
+ZSH_AUTOSUGGEST_STRATEGY=(contextual_history)
+# - or -
+ZSH_AUTOSUGGEST_STRATEGY=(contextual_match_prev_cmd)
+```
+
+Toggling `^G` or your local-history key refreshes the inline suggestion
+immediately (both toggles call `zle autosuggest-fetch` via the shared
+status helper, so the visible suggestion reflects the new state on
+the same press rather than the next keystroke).
+
+### Picking a strategy
+
+| You currently use | Use this |
+|---|---|
+| stock `history` | `contextual_history` |
+| stock `match_prev_cmd` | `contextual_match_prev_cmd` |
+
+Stock `match_prev_cmd` already follows the context-vs-global axis for
+free (it reads zsh's live history, which the `^G` toggle has already
+swapped). What it doesn't know is the local-vs-other-shell filter —
+so with local-history mode on, stock would still suggest entries from
+other shells, contradicting what up-arrow walks. The port closes that
+gap.
+
+### How they work
+
+Each strategy mirrors its upstream counterpart when local-history mode
+is off (so users lose nothing by opting in). When local-history mode is
+on:
+
+- **`contextual_history`** restricts the prefix-match search to
+  entries this shell typed, picking the most recent match.
+- **`contextual_match_prev_cmd`** filters the candidate list to
+  this-shell-typed entries; upstream's "prefer a candidate whose
+  preceding history entry equals your last command, fall back to
+  newest match" logic then runs on that filtered list. Result: you
+  only ever suggest commands this shell has typed.
+
+Both honour `ZSH_AUTOSUGGEST_HISTORY_IGNORE` the same way upstream
+does. Full algorithmic detail in
+[INTERNALS — autosuggestions strategies][ia].
+
+[ia]: INTERNALS.md#zsh-autosuggestions-strategies
+
+### Load-order notes
+
+- Both plugin source lines can be in either order. Our nav-widget
+  wrap chain composes correctly either way (test_p33).
+- The `ZSH_AUTOSUGGEST_STRATEGY` assignment must come **after**
+  sourcing `zsh-autosuggestions.zsh`, which assigns a default at
+  source time.
+
+----------------------------------------------------------------------------
+fzf integration
+----------------------------------------------------------------------------
+
+> Replaces `^R` with a picker that distinguishes this-shell entries
+> from peer-shell entries, with an in-picker toggle to switch between
+> "this shell only" and "everything".
+
+Provided by `contextual-history-fzf-widget`. Auto-loads when `fzf` is
+on `$PATH` at plugin source time.
+
+### Quick start
+
+The integration auto-loads when `fzf` is on `$PATH` — you don't need
+to source anything extra. All you do is decide how the widget gets
+invoked. The simplest path:
+
+```zsh
+zstyle ':contextual-history:*' fzf-bind-ctrl-r true
+source /path/to/contextual-history.zsh
+```
+
+That hands `^R` to `contextual-history-fzf-widget` at first precmd
+(replacing fzf's stock `fzf-history-widget`). Press `alt-l` inside
+the picker to see local-only history, `alt-a` to flip back to all.
+That's it.
+
+Two alternative wire-ups (separate key, or manual `^R` with fzf's
+default suppressed) are described under
+[Wire-up alternatives](#wire-up-alternatives) below.
+
+### How it works
+
+The fzf widget lives in **`contextual-history-fzf.zsh`**, auto-sourced
+by the main plugin when `fzf` is on `$PATH` (gateable with
+`fzf-integration` / `CONTEXTUAL_HISTORY_FZF_INTEGRATION`).
+
+Each entry in the picker is tagged `L` (typed in *this* shell) or `F`
+(arrived from somewhere else — another shell, or a prior session of
+this terminal). The toggle binds (default `alt-l` / `alt-a`) flip
+between "L-only" and "everything" by adjusting fzf's query filter —
+no subprocess relaunch, no race, and your in-flight free-text query
+is preserved.
+
+For the on-disk record format, fzf wire-up details, and how `L`/`F`
+classification stays correct across `^G` toggles and `cd`, see
+[INTERNALS — fzf widget][ifw].
+
+[ifw]: INTERNALS.md#fzf-widget-and-the-foreign-tag-preservation-problem
+
+### Wire-up alternatives
+
+The Quick Start above shows the auto-bind path. If you want a
+different key or want fzf's `^R` left alone entirely:
+
+**Bind to a separate key — leave fzf's `^R` alone:**
+
+```zsh
+# In .zshrc, AFTER both fzf's key-bindings.zsh and contextual-history are sourced.
+bindkey -M emacs '^X^R' contextual-history-fzf-widget
+bindkey -M viins '^X^R' contextual-history-fzf-widget
+bindkey -M vicmd '^X^R' contextual-history-fzf-widget
+```
+
+**Disable fzf's `^R`, bind ours to `^R` manually:**
+
+```zsh
+FZF_CTRL_R_COMMAND=''                       # tells fzf to skip ^R install
+source /path/to/fzf/key-bindings.zsh
+source /path/to/contextual-history.zsh
+
+bindkey -M emacs '^R' contextual-history-fzf-widget
+bindkey -M viins '^R' contextual-history-fzf-widget
+bindkey -M vicmd '^R' contextual-history-fzf-widget
+```
+
+Load-order note: for the auto-bind path (Quick Start), order doesn't
+matter — the plugin checks at first precmd. For the two manual paths
+above, `bindkey` runs immediately, so fzf must have already been
+sourced (or had its `^R` install suppressed via `FZF_CTRL_R_COMMAND=''`)
+to avoid fzf clobbering your bind afterwards.
+
+### Toggle keys, prompts, default view
+
+```zsh
+zstyle ':contextual-history:*' fzf-default-view      all          # or 'local'
+zstyle ':contextual-history:*' fzf-toggle-local-key  'alt-l'
+zstyle ':contextual-history:*' fzf-toggle-all-key    'alt-a'
+zstyle ':contextual-history:*' fzf-prompt-local      'LOCAL> '
+zstyle ':contextual-history:*' fzf-prompt-all        'ALL> '
+zstyle ':contextual-history:*' fzf-extra-opts        '--height 60%'
+```
+
+Inside the fzf session: press `alt-l` to filter to local entries
+only; press `alt-a` to see everything. The flag is anchored to the
+start of the visible field, so user-typed queries combine cleanly:
+typing `make build` in local view searches local-only entries
+containing those tokens.
+
+### Live refresh
+
+The picker shows a snapshot taken when you press the bind key. While
+fzf is open, that snapshot is fixed. To pick up commands that arrived
+from other shells while you were in the picker, close it and re-press
+the bind key — that re-snapshots.
+
+### What the native module changes
+
+The picker works fine without the optional native module. With the
+module loaded, mid-session refreshes preserve the `L`/`F` distinction
+more accurately for entries that arrive while you're idle. See
+[Optional native helper module](#optional-native-helper-module).
 
 ----------------------------------------------------------------------------
 Tests
@@ -277,7 +541,7 @@ scenario test under `tests/`.
 |---|---|
 | `$HISTFILE` is swapped on `chpwd`/toggle (was: `fc -p` inside `zshaddhistory`) | `fc -p` inside the addhistory hook is auto-popped by `hend()` (`Src/hist.c:1633`). The per-dir file never becomes zsh's authoritative `$HISTFILE`, so `SHARE_HISTORY`'s prompt-time merge never reads it. Same-directory cross-terminal sync is silently broken in upstream. |
 | No `fc -AI` flush in mode-swap functions | `fc -AI` against an active history file triggers `savehistfile()`'s rewrite block (`Src/hist.c:3082-3098`), which truncates and rewrites the file out from under concurrent SHARE readers. They silently lose entries. |
-| Mode-N (no `SHARE`/`INC`) gets `fc -AI` flush at `chpwd`, gated to mode N | Without an explicit flush, in-memory entries get wiped at ring-replace before reaching disk. The rewrite-block hazard doesn't apply in mode N because there's no concurrent reader. |
+| Shell-exit mode (no `SHARE`/`INC`) gets `fc -AI` flush at `chpwd`, gated to that mode | Without an explicit flush, in-memory entries get wiped at ring-replace before reaching disk. The rewrite-block hazard doesn't apply in shell-exit mode because there's no concurrent reader. |
 | Tee writes the *inactive* store on every command, in extended-history format unconditionally | Keeps both stores ever-growing regardless of mode. `SHARE_HISTORY`'s incremental writer forces extended format internally; mixed format on disk perturbs the per-process `lasthist` tracker. |
 | Tee uses zsh's actual lock protocol | Without it, multi-syscall writes (large pasted blobs) can interleave with stock zsh's incremental writers on the same file. |
 | Optional native helper module | Calls zsh's own `lockhistfile`/`unlockhistfile` directly, plus a clean ring-replace builtin that avoids the 2-entry leak inherent to `HISTSIZE=2; fc -R`. Plugin gracefully falls back to pure-shell when not built. |
