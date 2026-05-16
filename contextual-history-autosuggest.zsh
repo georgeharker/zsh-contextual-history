@@ -120,19 +120,14 @@ function _zsh_autosuggest_strategy_contextual_history() {
 # Local-history-aware port of upstream's `match_prev_cmd` strategy.
 #
 # Upstream behaviour: among history entries that start with the prefix,
-# prefer one whose PRECEDING entry equals the previously-executed
-# command; fall back to the newest prefix match if no such pair exists.
+# prefer one whose immediately-preceding history entry equals the most
+# recently executed command (`history[HISTCMD-1]`); fall back to the
+# newest prefix match if no such pair exists.
 #
-# Local-history-aware additions:
-#   - candidates filtered to entries in _context_history_local_texts;
-#   - the preceding-entry match also requires that entry to be local,
-#     so the (prev_cmd -> next) pair is learned from THIS shell's
-#     typing only - a peer's (prev_cmd, X) sequence doesn't influence
-#     the suggestion.
-#
-# prev_cmd itself is always local: addhistory fires for every command
-# this shell types, so history[HISTCMD-1] is by construction in our
-# texts set when we get here.
+# Local-history mode change: candidates are filtered to entries in
+# `_context_history_local_texts` (only this shell's typing). The
+# preceding-entry adjacency match runs upstream's logic unchanged on
+# that filtered candidate list.
 
 function _zsh_autosuggest_strategy_contextual_match_prev_cmd() {
   emulate -L zsh
@@ -144,13 +139,11 @@ function _zsh_autosuggest_strategy_contextual_match_prev_cmd() {
   _ch_as_build_pattern "$prefix"
   local pattern=$REPLY
 
-  local -i local_only=${_context_history_local_mode:-0}
-
   # Histnums of entries matching the prefix, newest-first ordering by
   # $history's iteration order.
   local -a history_match_keys=( ${(k)history[(R)$~pattern]} )
 
-  if (( local_only )); then
+  if (( ${_context_history_local_mode:-0} )); then
     local -a filtered
     local key
     for key in $history_match_keys; do
@@ -166,7 +159,7 @@ function _zsh_autosuggest_strategy_contextual_match_prev_cmd() {
     return
   fi
 
-  # Default: newest matching candidate. Replaced below if we find one
+  # Default: newest matching candidate. Upgraded below if we find one
   # whose preceding entry equals prev_cmd.
   local histkey="${history_match_keys[1]}"
 
@@ -176,17 +169,11 @@ function _zsh_autosuggest_strategy_contextual_match_prev_cmd() {
   # Upstream caps the search at 200 candidates; we do the same.
   local key
   for key in "${(@)history_match_keys[1,200]}"; do
-    # Stop if there's no preceding entry.
     [[ $key -gt 1 ]] || break
-    [[ "${history[$((key - 1))]}" == "$prev_cmd" ]] || continue
-    # In local-history mode, also require the preceding entry to be
-    # local so we only learn patterns from this shell's typing.
-    if (( local_only )); then
-      (( ${+_context_history_local_texts[${history[$((key - 1))]}]} )) \
-        || continue
+    if [[ "${history[$((key - 1))]}" == "$prev_cmd" ]]; then
+      histkey=$key
+      break
     fi
-    histkey=$key
-    break
   done
 
   typeset -g suggestion="${history[$histkey]}"

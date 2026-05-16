@@ -587,10 +587,17 @@ consults `_context_history_local_texts` directly.
 - Default suggestion = newest remaining candidate. Then walk up to
   200 candidates (mirroring upstream's cap), upgrading to one whose
   *preceding* history entry equals `${history[$((HISTCMD-1))]}` (the
-  user's last-executed command). In local-history mode, also require
-  the preceding entry to be local — so the `(prev_cmd, follow)`
-  pattern is learned from this shell's typing only, not from
-  peer-shell sequences.
+  user's last-executed command). The preceding-entry comparison is
+  upstream's logic unchanged — operating on the already-filtered
+  candidate list.
+
+We deliberately don't add a "preceding entry must also be in local
+texts" check on top: the preceding-entry comparison is by text, the
+last-executed command is always in our local-texts set (addhistory
+saw it), so the additional check would be redundant in every
+common case and could only matter under a rare race (peer write
+between this shell's `enter` and the keystroke that triggers
+autosuggest, such that `HISTCMD-1` happens to point to peer text).
 
 ### Toggle responsiveness
 

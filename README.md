@@ -369,10 +369,11 @@ on:
 
 - **`contextual_history`** restricts the prefix-match search to
   entries this shell typed, picking the most recent match.
-- **`contextual_match_prev_cmd`** does the same for the candidate
-  list, and additionally requires the *preceding* entry to be local —
-  so the "what comes after X" pattern is learned from this shell's
-  typing only, not from peer shells.
+- **`contextual_match_prev_cmd`** filters the candidate list to
+  this-shell-typed entries; upstream's "prefer a candidate whose
+  preceding history entry equals your last command, fall back to
+  newest match" logic then runs on that filtered list. Result: you
+  only ever suggest commands this shell has typed.
 
 Both honour `ZSH_AUTOSUGGEST_HISTORY_IGNORE` the same way upstream
 does. Full algorithmic detail in

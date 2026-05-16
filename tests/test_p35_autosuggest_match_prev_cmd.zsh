@@ -5,13 +5,15 @@
 # `match_prev_cmd` strategy:
 # `_zsh_autosuggest_strategy_contextual_match_prev_cmd`.
 #
-# Strategy contract (mirrors upstream + local-history filter):
+# Strategy contract (upstream's match_prev_cmd, with a candidate
+# filter when local-history mode is on):
 #   - finds entries matching prefix*;
 #   - prefers an entry whose PRECEDING history entry equals the
 #     previously-executed command (history[HISTCMD-1]);
 #   - falls back to newest prefix match if no such pair exists;
-#   - local-history ON: filters candidates AND the preceding-entry
-#     check to entries in _context_history_local_texts.
+#   - local-history ON: candidates are filtered to entries this shell
+#     typed; the preceding-entry adjacency check runs upstream's
+#     logic unchanged on that filtered list.
 #
 # Test scenarios:
 #   (a) local-history OFF: prev_cmd-pair match beats pure recency. Two
