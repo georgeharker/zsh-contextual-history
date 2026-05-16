@@ -17,7 +17,7 @@ a zsh-autosuggestions-aware suggestion strategy.
 | Feature | What it does | How to use |
 |---|---|---|
 | Context vs global | One history file per directory or project, with a toggle to fall back to your global history. | `^G` (default; configurable) |
-| Local-history filter | Up-arrow walks only commands this shell typed, skipping other-shell and prior-session entries. | Opt-in. Set `local-toggle-key` to bind a key, or `start-with-local true` to pin it on. |
+| Local-history filter | Up-arrow walks only commands this shell typed, skipping other-shell and prior-session entries. | Off by default. Toggle with `local-toggle-key`, or pin it on with `start-with-local true`. |
 | fzf integration | `^R`-style picker that shows the same toggles inline, so you can flip between "this shell" / "all shells" without leaving the picker. | Auto-loaded if `fzf` is on `$PATH` |
 | Autosuggestions strategy | Inline grey suggestion respects both filter axes. | Opt-in via `ZSH_AUTOSUGGEST_STRATEGY` |
 
@@ -257,9 +257,14 @@ Local-history navigation filter
 > Makes up-arrow walk only commands you typed in this shell, skipping
 > entries other shells wrote or prior sessions left on disk.
 
-Opt-in toggle. The bit is per-shell-instance and persists until you
-toggle off (or the shell exits). Combine with `^G` (context/global)
-to navigate any of the four slices in the [axis grid above](#features-at-a-glance).
+Off by default; the toggle bit is per-shell-instance and persists
+until you toggle off or the shell exits. Combine with `^G`
+(context/global) to navigate any of the four slices in the
+[axis grid above](#features-at-a-glance).
+
+To make the plugin leave zsh's history-navigation widgets alone
+entirely — falling back to their default behaviour — set
+`wrap-widgets false` (see [Configuration](#core-settings)).
 
 ### Setup
 
