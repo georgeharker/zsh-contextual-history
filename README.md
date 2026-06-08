@@ -222,31 +222,23 @@ but it sharpens behaviour in a few specific areas:
   the module, the foreign bit survives, so classification stays
   correct in real time.
 
-```sh
-cd module
-make                              # auto-fetch zsh source matching $ZSH_VERSION,
-                                  # ./configure, build, produce zsh/contextual_history.{so,bundle}
-```
-
-Or, after sourcing the plugin, build from inside zsh:
+After sourcing the plugin, build from inside zsh (same mechanism as
+fzf-tab's `build-fzf-tab-module`: the module is compiled inside zsh's
+own module build system, which supplies the right platform flags and
+generated headers):
 
 ```zsh
-contextual-history-build-module           # equivalent to `cd <plugin>/module && make`
-contextual-history-build-module install   # forwards args, e.g. `make install`
-contextual-history-build-module clean
+contextual-history-build-module      # clone zsh source matching $ZSH_VERSION,
+                                     # build, produce module/zsh/contextual_history.{so,bundle}
+contextual-history-build-module 5.9  # build against an explicit zsh version
 ```
 
-Two ways to use it once built:
+Then to use it:
 
 ```zsh
-# Option 1: load from the source tree (no system install).
+# In .zshrc, BEFORE sourcing the plugin:
 zstyle ':contextual-history:*' use-module true
 # Equivalent env-var form: CONTEXTUAL_HISTORY_USE_MODULE=true
-source /path/to/contextual-history.zsh
-
-# Option 2: install into a $module_path location.
-cd module && make install
-# Then in zshrc:
 source /path/to/contextual-history.zsh
 ```
 
