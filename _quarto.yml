@@ -1,0 +1,44 @@
+project:
+  type: website
+  render:
+    # README files must be listed explicitly; globs skip them.
+    # REDDIT_POST.md and LICENSE.md are deliberately not rendered.
+    - index.md
+    - README.md
+    - INTERNALS.md
+    - module/README.md
+    - tests/README.md
+
+# gfm_auto_identifiers makes heading anchors match GitHub's slugs, which the
+# docs' cross-links use. Keep pandoc's full markdown reader otherwise —
+# `from: gfm` breaks Quarto's navigation divs.
+from: markdown+gfm_auto_identifiers
+
+website:
+  title: "zsh-contextual-history"
+  search: true
+  sidebar:
+    style: docked
+    tools:
+      - icon: github
+        href: https://github.com/georgeharker/zsh-contextual-history
+        text: GitHub repository
+    contents:
+      - text: "Home"
+        href: index.md
+      - text: "Overview (README)"
+        href: README.md
+      - text: "Internals"
+        href: INTERNALS.md
+      - section: "Reference"
+        contents:
+          - text: "Native Helper Module"
+            href: module/README.md
+          - text: "Test Infrastructure"
+            href: tests/README.md
+
+format:
+  html:
+    theme: pulse
+    toc: true
+    embed-resources: true

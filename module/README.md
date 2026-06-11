@@ -23,9 +23,10 @@ direct calls into zsh's own internals:
   histtab-based dedup against entries already in the ring. The
   pure-shell fallback is `fc -RI`, which uses `HFILE_SKIPOLD`
   without `HFILE_FAST` and therefore does NOT set `HIST_FOREIGN` —
-  this matters for `contextual-history-fzf-widget`, whose local/all
-  toggle relies on `HIST_FOREIGN` (visible as the `*` column in
-  `fc -l`).
+  mid-session arrivals then load as if locally typed, so zsh's own
+  foreign-entry behaviour (the `*` column in `fc -l`, `fc -L`'s
+  foreign exclusion, history expansion's foreign skip) diverges
+  from a stock `SHARE_HISTORY` merge.
 
 Common implementation thread: the module includes a handful of zsh
 source headers and calls `lockhistfile` / `unlockhistfile` /
@@ -37,8 +38,9 @@ Net result for the tee path: the tee writer interlocks with stock
 zsh's own `SHARE_HISTORY` / `INC_APPEND_HISTORY` writers on the same
 file, even across multi-syscall edge cases (huge pasted commands)
 that the pure-shell fallback's lock-free atomicity can't cover. Net
-result for fast-refresh: widget-time refreshes preserve the
-local-vs-foreign distinction that the fzf widget filters on.
+result for fast-refresh: widget-time refreshes stay behaviourally
+identical to zsh's own `SHARE_HISTORY` merge, foreign tagging
+included.
 
 ## Building
 
@@ -129,10 +131,14 @@ zsh writers on the same file.
 
 The native module is meaningfully better when:
 
-- **You use `contextual-history-fzf-widget`.** The fast-refresh
-  builtin is the only mechanism that preserves `HIST_FOREIGN` through
-  the plugin's widget-time refresh. Without it, the widget's
-  local/all toggle becomes a no-op (every entry appears local).
+- **You care about `HIST_FOREIGN` staying accurate.** The fast-refresh
+  builtin is the only script-reachable mechanism that preserves
+  `HIST_FOREIGN` through the plugin's widget-time refresh. Without it,
+  entries arriving mid-session lose the `*` marker in `fc -l` and
+  zsh's foreign-entry semantics (`fc -L`, history expansion's foreign
+  skip) drift from stock `SHARE_HISTORY` behaviour. (The fzf widget's
+  L/F tagging does not depend on this — it uses the plugin's own
+  write-tracking.)
 - You routinely paste multi-kilobyte command lines (rare; could trigger
   multi-syscall writes that the lock-free fallback's per-write atomicity
   doesn't cover, where the native helper's held-lock does).

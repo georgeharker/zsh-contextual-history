@@ -39,6 +39,9 @@ e.g. `history: context | this-shell only (12 entries)`.
 source /path/to/contextual-history.zsh
 ```
 
+(Plugin managers that look for `<repo>.plugin.zsh` work too —
+`contextual-history.plugin.zsh` is a symlink to the same file.)
+
 That's enough to get per-directory history + the `^G` global-toggle.
 Common additions:
 
@@ -60,8 +63,7 @@ variable — pick whichever fits your dotfiles. See [Configuration](#configurati
 for the full list.
 
 ----------------------------------------------------------------------------
-Contextual grouping
-----------------------------------------------------------------------------
+## Contextual grouping
 
 The resolver decides which history file is used for the current `$PWD`.
 There are two ways to configure it.
@@ -122,8 +124,7 @@ you to compose custom resolvers using the same walk-up semantics. It
 honours the `group-stops` zstyle / `CONTEXTUAL_HISTORY_GROUP_STOPS` env var.
 
 ----------------------------------------------------------------------------
-Configuration
-----------------------------------------------------------------------------
+## Configuration
 
 Every setting can be configured as either an environment variable or
 a `zstyle` — both are fully supported. Resolution at plugin source
@@ -148,7 +149,7 @@ variable.
 | `CONTEXTUAL_HISTORY_WRAP_WIDGETS`<br>`wrap-widgets` | `true` | Install our wraps around zsh's history-navigation widgets. The wraps deliver idle peer visibility on up-arrow (without them, pressing up between commands under `SHARE_HISTORY` walks a stale view) and provide the scope for the local-history filter. Set `false` to leave zsh's history widgets untouched. |
 | `CONTEXTUAL_HISTORY_FZF_INTEGRATION`<br>`fzf-integration` | `true` | Load the fzf integration if `fzf` is on `$PATH` at source time. See [fzf integration](#fzf-integration). |
 | `CONTEXTUAL_HISTORY_USE_MODULE`<br>`use-module` | `false` | Load the locally-built native helper module (avoids the 2-entry ring-replace leak; preserves `HIST_FOREIGN` on idle refreshes). See [Optional native helper module](#optional-native-helper-module). |
-| `CONTEXTUAL_HISTORY_DEBUG`<br>`debug` | `false` | Print `[ch-dbg] ...` lines to stderr at key transitions (mode swap, chpwd, tee fallback). |
+| `CONTEXTUAL_HISTORY_DEBUG`<br>`debug` | `false` | Print `[ch-dbg] ...` lines to stderr at key transitions (first-precmd init, widget refresh/wrap installation, fzf gating). |
 
 A handful of rarely-needed override knobs (which widgets get
 wrapped, whether the nav-widget mtime refresh is active) live in
@@ -170,8 +171,7 @@ Only consulted when the fzf integration loads. See
 | `CONTEXTUAL_HISTORY_FZF_EXTRA_OPTS`<br>`fzf-extra-opts` | `''` | Extra fzf opts appended after our defaults. Also honours upstream `FZF_CTRL_R_OPTS`. |
 
 ----------------------------------------------------------------------------
-Interaction with SHARE_HISTORY / INC_APPEND_HISTORY
-----------------------------------------------------------------------------
+## Interaction with SHARE_HISTORY / INC_APPEND_HISTORY
 
 The plugin works in three effective zsh history modes:
 
@@ -197,8 +197,7 @@ symlink protocol. This serialises us against zsh's own incremental
 writers on the same file.
 
 ----------------------------------------------------------------------------
-Optional native helper module
-----------------------------------------------------------------------------
+## Optional native helper module
 
 The plugin ships with an optional zsh module providing three builtins.
 It's not required for any feature — the pure-shell fallback works —
@@ -216,11 +215,16 @@ but it sharpens behaviour in a few specific areas:
 - **`contextual-history-fast-refresh`** — refresh from disk preserving
   the `HIST_FOREIGN` flag on newly-loaded entries (`HFILE_USE_OPTIONS |
   HFILE_FAST | HFILE_SKIPOLD`). The pure-shell `fc -RI` fallback drops
-  the foreign flag, which means the fzf widget's L/F classification
-  (and the autosuggestions strategy's local-history filter) treat
-  newly-arrived peer entries as local until the next ring swap. With
-  the module, the foreign bit survives, so classification stays
-  correct in real time.
+  the foreign flag, so entries that arrive mid-session via a
+  widget-time refresh load as if this shell typed them — zsh's own
+  foreign-entry semantics (the `*` marker in `fc -l`, `fc -L`'s
+  foreign exclusion, history expansion's foreign skip) diverge from
+  what stock `SHARE_HISTORY` would show. With the module, the foreign
+  bit survives, so those refreshes stay behaviourally identical to
+  zsh's own share-merge. (The plugin's own L/F classification — fzf
+  widget, local-history filter, autosuggestions strategies — is keyed
+  on its write-tracking sets, not `HIST_FOREIGN`, and is correct
+  either way.)
 
 ```sh
 cd module
@@ -259,8 +263,7 @@ See [module/README.md][modr] for build details, troubleshooting, and a
 discussion of when the native lock actually matters.
 
 ----------------------------------------------------------------------------
-Local-history navigation filter
-----------------------------------------------------------------------------
+## Local-history navigation filter
 
 > Makes up-arrow walk only commands you typed in this shell, skipping
 > entries other shells wrote or prior sessions left on disk.
@@ -307,8 +310,7 @@ entries), and override knobs, see
 [il]: INTERNALS.md#local-history-navigation-filter
 
 ----------------------------------------------------------------------------
-zsh-autosuggestions integration
-----------------------------------------------------------------------------
+## zsh-autosuggestions integration
 
 > Makes the inline grey suggestion respect both filter axes — so what
 > you're being suggested matches what up-arrow would walk.
@@ -398,8 +400,7 @@ does. Full algorithmic detail in
   source time.
 
 ----------------------------------------------------------------------------
-fzf integration
-----------------------------------------------------------------------------
+## fzf integration
 
 > Replaces `^R` with a picker that distinguishes this-shell entries
 > from peer-shell entries, with an in-picker toggle to switch between
@@ -505,22 +506,22 @@ the bind key — that re-snapshots.
 
 ### What the native module changes
 
-The picker works fine without the optional native module. With the
-module loaded, mid-session refreshes preserve the `L`/`F` distinction
-more accurately for entries that arrive while you're idle. See
+The picker works fine without the optional native module — `L`/`F`
+classification comes from the plugin's own write-tracking, not zsh's
+`HIST_FOREIGN` flag. What the module adds is the sharper refresh, tee,
+and ring-replace behaviour described under
 [Optional native helper module](#optional-native-helper-module).
 
 ----------------------------------------------------------------------------
-Tests
-----------------------------------------------------------------------------
+## Tests
 
 ```sh
 cd tests
-make                # full PTY suite, both module configs (50 cases)
+make                # full PTY suite, both module configs (70 cases)
 make test           # alias for the above
 make test-no-module # pure-shell only
 make test-with-module
-make test-upstream  # curated subset run against jimhester's upstream
+make test-upstream  # full suite run against jimhester's upstream
                     # plugin (auto-fetched into .upstream/) -- documents
                     # which bugs the fork fixes by showing them failing
                     # on upstream vs. passing on the fork
@@ -535,8 +536,7 @@ See [tests/README.md](tests/README.md) for layout, the harness API,
 and the per-scenario index.
 
 ----------------------------------------------------------------------------
-Why this fork exists
-----------------------------------------------------------------------------
+## Why this fork exists
 
 The short version: getting per-directory history to work correctly under
 `SHARE_HISTORY` (and to keep working under mid-session toggling, mode
@@ -563,8 +563,7 @@ record of how each finding was confirmed and what alternatives were
 rejected.
 
 ----------------------------------------------------------------------------
-Relationship to upstream
-----------------------------------------------------------------------------
+## Relationship to upstream
 
 This is a fork of [jimhester/per-directory-history][upstream]. The fork
 diverged on:
@@ -579,8 +578,7 @@ diverged on:
 [upstream]: https://github.com/jimhester/per-directory-history
 
 ----------------------------------------------------------------------------
-History
-----------------------------------------------------------------------------
+## History
 
 The original idea is from [Stewart MacArthur][m1] and [Dieter][m2]; the
 implementation idea is from [Bart Schaefer][m3] on the zsh mailing list.

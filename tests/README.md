@@ -7,7 +7,7 @@ PTY-based interactive scenario tests for `contextual-history.zsh`.
 ```sh
 make                # run the full PTY suite (recommended)
 make test           # alias for the above
-make test-upstream  # curated subset against jimhester's upstream
+make test-upstream  # full suite against jimhester's upstream
                     # plugin -- proves which bugs the fork fixes
 make clean          # remove transient artifacts
 ```
@@ -24,11 +24,11 @@ The runner runs every `test_p*.zsh` under both
 module hasn't been built.
 
 `make test-upstream` auto-fetches the upstream plugin into `.upstream/`
-on first run, then runs a hand-picked subset of `test_p*.zsh` against
-it. Tests are classified as expected-FAIL (a fork-fixed bug, where a
-FAIL on upstream confirms the bug) or expected-PASS (baseline
-behaviour upstream gets right). The runner exits non-zero only on
-unexpected outcomes.
+on first run, then runs every `test_p*.zsh` against it and categorises
+the outcomes after the fact: FORK-FIXED-BUG (passes on the fork, fails
+on upstream), BASELINE-INTACT (passes on both), FORK-ONLY-FEATURE
+(fails on upstream because the test depends on a feature upstream
+lacks), plus a warning for any unexpected upstream pass.
 
 ## Layout
 
@@ -37,7 +37,7 @@ tests/
 ├── Makefile                (test entry points)
 ├── README.md               (this file)
 ├── run_pty_tests.zsh       (runner: every test_p*.zsh x both module configs)
-├── run_upstream_tests.zsh  (runner: curated subset vs. upstream plugin)
+├── run_upstream_tests.zsh  (runner: full suite vs. upstream plugin)
 ├── lib/
 │   └── pty_harness.zsh     (zpty-based PTY harness library)
 ├── .upstream/              (gitignored; populated on `make test-upstream`)
@@ -115,6 +115,16 @@ values.
 | **p23** | `HIST_FCNTL_LOCK` path — two shells write rapidly into the same per-dir context with fcntl locking; all entries land in both stores in well-formed extended-history shape, no truncation |
 | **p24** | Per-dir path with spaces and shell-significant characters — cd into an awkward path, write, verify per-dir file at expected path; cross-shell SHARE merge works across the awkward path |
 | **p25** | Custom resolver edge cases — empty-string key collapses all dirs to a single shared file; whitespace-containing key works end-to-end with cross-shell SHARE merge. Surfaced and fixed a `HISTORY_BASE` × resolver-key path-join bug |
+| **p26** | fzf snapshot basics — `contextual-history-fast-refresh` sets `HIST_FOREIGN` on injected entries; the snapshot builder emits well-formed tab-delimited L/F records (requires module + fzf) |
+| **p27** | fzf filter toggle end-to-end — local view (`^L `) shows only this shell's writes, all view shows both shells'; toggle helper strips/re-applies the anchor idempotently (requires module + fzf) |
+| **p28** | No-module degradation — with `USE_MODULE=false` the fzf widget is still registered, the snapshot stays well-formed (own entries tagged L), and the toggle helper works |
+| **p29** | fzf load gate — `fzf-integration=false` or fzf missing from `$PATH` each prevent sourcing the fzf integration file |
+| **p30** | L/F semantic — pre-existing on-disk entries tag F, post-start peer writes tag F, this shell's own typing tags L, and classification is stable across refreshes |
+| **p31** | L tag survives ring replacement — toggle to global and back; this shell's entry still tags L via the (stim, text) identity set |
+| **p32** | Local-history navigation filter — with the toggle on, up-arrow never lands on a peer-written entry |
+| **p33** | Wrap-chain composition — the local-history skip-loop still fires when a zsh-autosuggestions-style wrap re-binds our wrap under a renamed alias |
+| **p34** | `contextual_history` autosuggest strategy — matches stock `history` with local-history off; restricts to this shell's entries when on |
+| **p35** | `contextual_match_prev_cmd` autosuggest strategy — prev-cmd adjacency preference over pure recency, plus the local-history candidate filter |
 
 ## Adding a new test
 

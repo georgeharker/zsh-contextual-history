@@ -3,3 +3,7 @@
 *.o
 *.bundle
 *.so
+/_site/
+/.quarto/
+**/*.quarto_ipynb
+_quarto-deploy.yml

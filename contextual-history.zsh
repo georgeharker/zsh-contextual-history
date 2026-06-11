@@ -361,7 +361,14 @@ bindkey -M vicmd "$CONTEXTUAL_HISTORY_TOGGLE" context-history-toggle-history
 
 # Capture the user's original $HISTFILE before we possibly reassign it
 # below. Used by the toggle widget to swap back to "global" mode.
-_context_history_global_histfile="$HISTFILE"
+# Fall back to ~/.zsh_history when unset: zsh ships with no default for
+# HISTFILE, so on distros that don't preseed one (e.g. Debian when
+# /etc/zsh/newuser.zshrc.recommended hasn't run, or when this plugin is
+# sourced before the user's HISTFILE= line) it would be empty here.
+# An empty $HISTFILE means global mode silently stops saving/loading
+# history, and the Ctrl-G toggle blanks $HISTFILE for the rest of the
+# session.
+_context_history_global_histfile="${HISTFILE:-$HOME/.zsh_history}"
 
 _context-history-resolve-file
 
@@ -374,6 +381,7 @@ _context-history-resolve-file
 mkdir -p "${_context_history_directory:h}" 2>/dev/null
 if [[ ${HISTORY_START_WITH_GLOBAL:-false} == true ]]; then
   _context_history_is_global=true
+  HISTFILE="$_context_history_global_histfile"
 else
   _context_history_is_global=false
   HISTFILE="$_context_history_directory"

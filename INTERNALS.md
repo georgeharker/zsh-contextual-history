@@ -1,9 +1,8 @@
 # Internals — motivation, discovery, and design
 
 This document is the canonical "why and how" for `zsh-contextual-history`.
-Both the [README](README.md) and the [Reddit announcement](REDDIT_POST.md)
-link here for the source-level walkthrough — they each carry only a
-short summary so the user-facing docs stay readable.
+The [README](README.md) links here for the source-level walkthrough —
+it carries only a short summary so the user-facing docs stay readable.
 
 What you'll find below:
 
@@ -25,16 +24,16 @@ file an issue.
 |---|---|
 | `$HISTFILE` is swapped on `chpwd`/toggle (was: `fc -p` inside `zshaddhistory`) | `fc -p` inside the addhistory hook is auto-popped by `hend()` (`Src/hist.c:1633`). The per-dir file never becomes zsh's authoritative `$HISTFILE`, so `SHARE_HISTORY`'s prompt-time merge never reads it. Same-directory cross-terminal sync is silently broken in upstream. |
 | No `fc -AI` flush in mode-swap functions | `fc -AI` against an active history file triggers `savehistfile()`'s rewrite block (`Src/hist.c:3082-3098`), which truncates and rewrites the file. Concurrent SHARE readers see invalidated `lasthist.fpos` and silently lose entries. |
-| Shell-exit mode (no `SHARE`/`INC`) gets `fc -AI` flush at `chpwd`, gated to that mode | Without an explicit flush, in-memory entries get wiped at the `HISTSIZE=0; fc -R newfile` step before reaching disk. The rewrite-block hazard doesn't apply in shell-exit mode because there's no concurrent reader. |
+| Shell-exit mode (no `SHARE`/`INC`) gets `fc -AI` flush at `chpwd`, gated to that mode | Without an explicit flush, in-memory entries get wiped at the `HISTSIZE=2; fc -R newfile` step before reaching disk. The rewrite-block hazard doesn't apply in shell-exit mode because there's no concurrent reader. |
 | Tee writes the *inactive* store on every command, in extended-history format unconditionally | Keeps both stores ever-growing regardless of mode. `EXTENDED_HISTORY` is treated as display-only because `SHARE_HISTORY`'s incremental writer forces extended format internally — mixed format on disk perturbs the per-process `lasthist` tracker. |
 | Tee uses zsh's actual lock protocol | Without it, multi-syscall writes (large pasted blobs) can interleave with stock zsh's incremental writers on the same file. |
 | Optional native helper module | Calls zsh's own `lockhistfile`/`unlockhistfile` directly, plus a clean ring-replace builtin that avoids the 2-entry leak inherent to `HISTSIZE=2; fc -R`. Adds a `contextual-history-fast-refresh` builtin that preserves `HIST_FOREIGN` through widget-time refreshes (used by the fzf widget's local/all toggle). Plugin gracefully falls back to pure-shell when not built. |
 | Configurable contextual grouping | Per-directory granularity is too fine for project work. Walking up to a marker (`.histroot`, `.git`) gives one history file per project; stop-points bound the walk. |
-| Opt-in fzf widget (`contextual-history-fzf-widget`) | fzf's stock `^R` widget reads `$history` (blind to `HIST_FOREIGN`) or `fc -l` (sees `*` but strips it in display). Our widget feeds fzf from `fc -lir` directly, tags each record `L`/`F`, and uses fzf's query-filter mechanism for the local/all toggle. Retrieval via `zle vi-fetch-history -n` sidesteps the documented `${(kv)history[@]}` foreign-lag bug. |
+| Opt-in fzf widget (`contextual-history-fzf-widget`) | fzf's stock `^R` widget reads `$history` (blind to `HIST_FOREIGN`) or `fc -l` (sees `*` but strips it in display). Our widget feeds fzf from `fc -lirt '%s'` directly, tags each record `L`/`F`, and uses fzf's query-filter mechanism for the local/all toggle. Retrieval via `zle vi-fetch-history -n` sidesteps the documented `${(kv)history[@]}` foreign-lag bug. |
 | Local-writes set for fzf L/F tagging | Raw `HIST_FOREIGN` means "loaded via `HFILE_FAST` since shell start" — zsh's startup load (`init.c:1395`) doesn't set it, and ring replacement (toggle / chpwd) reassigns histnums on reload, so neither flag nor histnum can carry a stable "this shell typed it" bit. The fzf integration tracks each write's `(stim, text)` in an associative array at the addhistory hook and looks it up in the snapshot via `fc -lirt '%s'`. Stable across ring replacement (key is on-disk identity, not histnum). Empirically full-text storage is cheapest at write AND read time vs. hashing alternatives. |
 | Local-history navigation filter | Opt-in keybind that wraps `up-history` / `down-history` / `up-line-or-history` etc. so they skip entries not in this shell's `_context_history_local_texts` set. Mechanism is purely the existing widget wrap plus a skip loop calling the underlying widget repeatedly until `BUFFER` matches or `HISTNO` stops advancing. No new hooks, no cache invalidation — the text set is shell-lifetime stable and shared with the fzf integration. |
 | Per-widget wrap generation | The widget-wrap machinery generates one wrap function per widget (`_context-history-wrap-<widget>`) with the canonical widget name hard-coded, dispatching through a shared `_context-history-wrap-impl` helper. Hard-coding side-steps the case where another plugin (notably zsh-autosuggestions) re-binds our wrap under a renamed alias and dispatches into it through that alias — `$WIDGET` then becomes the alias, but the canonical name we need for `orig_widgets` lookup and local-history scoping is still correct. |
-| File structure | Core history behaviour (`$HISTFILE` swap, tee, replace-ring, share-compat) is in `contextual-history.zsh`. Widget-wrap machinery is in `contextual-history-widgets.zsh`. Opt-in keybind features (local-history filter) are in `contextual-history-keybinds.zsh`. fzf integration is in `contextual-history-fzf.zsh`. The main plugin auto-sources the siblings; each has its own first-precmd hook for any installation it needs. |
+| File structure | Core history behaviour (`$HISTFILE` swap, tee, replace-ring, share-compat) is in `contextual-history.zsh`. Widget-wrap machinery is in `contextual-history-widgets.zsh`. Opt-in keybind features (local-history filter) are in `contextual-history-keybinds.zsh`. fzf integration is in `contextual-history-fzf.zsh`. zsh-autosuggestions strategies are in `contextual-history-autosuggest.zsh`. The main plugin auto-sources the siblings; the widgets and fzf siblings install via their own first-precmd hooks. |
 
 ----------------------------------------------------------------------------
 
@@ -91,7 +90,7 @@ on `chpwd` (or `precmd` first-run, or toggle), it directly assigns
 ```zsh
 HISTFILE="$_context_history_directory"
 local original_histsize=$HISTSIZE
-HISTSIZE=0                                 # clear in-memory ring (or use module)
+HISTSIZE=2                                 # trim in-memory ring (or use module)
 HISTSIZE=$original_histsize                # restore size
 fc -R "$HISTFILE"                          # load new file content
 ```
@@ -261,11 +260,14 @@ HFILE_FAST | HFILE_SKIPOLD)`. The flag combination:
 - `HFILE_USE_OPTIONS` — matches the hend-merge's call.
 
 When the module is loaded, the nav-widget wrap automatically uses
-the builtin. When it isn't, the plugin falls back to `fc -RI` and
-the widget's local/all toggle becomes a no-op for entries that
-arrive mid-session (every entry appears local). The widget itself
-still works without the module — just without the discrimination
-for mid-session arrivals.
+the builtin. When it isn't, the plugin falls back to `fc -RI`, and
+entries that arrive mid-session load without `HIST_FOREIGN` — zsh's
+own foreign-entry behaviour (the `*` column in `fc -l`, `fc -L`'s
+foreign exclusion, history expansion's foreign skip) then diverges
+from what a stock `SHARE_HISTORY` merge would produce. The fzf
+widget's L/F classification itself does not read `HIST_FOREIGN` —
+it uses the local-writes set (next section) — so the local/all
+toggle stays correct without the module.
 
 ### The widget design
 
@@ -291,9 +293,11 @@ Both paths discard `HIST_FOREIGN` by design. Wrapping the widget
 can't fix this — the input is already laundered before it reaches
 fzf.
 
-`contextual-history-fzf-widget` reads `fc -lE 1` directly (preserving
-`*`), tags each record as `L` (no marker) or `F` (marker), and
-emits a tab-delimited record:
+`contextual-history-fzf-widget` reads `fc -lirt '%s' 1` directly,
+tags each record as `L` (this shell typed it) or `F` (everything
+else) via the local-writes set described below (the `*` marker is
+parsed but deliberately not trusted), and emits a tab-delimited
+record:
 
 ```
 <flag>\t<histnum>\t<stim>\t<text>\0
@@ -615,7 +619,7 @@ what predicts the user's intent. Users who prefer `history` get
 `contextual_history`; users who prefer `match_prev_cmd` get
 `contextual_match_prev_cmd`. Chaining the two via
 `ZSH_AUTOSUGGEST_STRATEGY=(A B)` would not give clean local-history
-semantics — see the user-facing README for the trade-off discussion.
+semantics.
 
 ----------------------------------------------------------------------------
 
@@ -695,18 +699,22 @@ naturally a sibling project than a PR.
 
 ## Test coverage
 
-32 PTY-based scenario tests under `tests/`, each covering one
+35 PTY-based scenario tests under `tests/`, each covering one
 behaviour grounded above. Tests `p26`-`p31` cover the fzf integration
 (snapshot tagging, multi-shell SHARE filter toggle, no-module
 degradation, the `fzf-integration` load gate, the L/F semantic, and L tag
 preservation across ring replacement). Test `p32` covers the
-local-history navigation filter.
+local-history navigation filter; `p33` covers wrap-chain composition
+under zsh-autosuggestions; `p34`/`p35` cover the two autosuggestions
+strategies.
 
 Run `make test` for the full matrix (both module configs);
 `make test-upstream` runs the same suite against the unmodified
 upstream plugin to demonstrate which findings translate to specific
 test failures on upstream master.
 
-Today's matrix outcome: 64/64 green on the fork (with module),
-9 fork-fixed bugs failing on upstream, 6 baseline tests passing on
-both.
+Today's matrix outcome: 70/70 green on the fork (both module
+configs). Against upstream: 18 tests fail (fork-fixed bugs, plus the
+fzf/autosuggest scenarios that exercise features upstream lacks),
+7 baseline tests pass on both, and 10 are tagged fork-only features
+(module, group-by, zstyle config, custom resolver).
