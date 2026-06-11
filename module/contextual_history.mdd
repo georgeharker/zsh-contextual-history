@@ -2,6 +2,6 @@ name=zsh/contextual_history
 link=dynamic
 load=no
 
-autobins="contextual-history-tee"
+autofeatures="b:contextual-history-tee b:contextual-history-replace-ring b:contextual-history-fast-refresh"
 
 objects="contextual_history.o"

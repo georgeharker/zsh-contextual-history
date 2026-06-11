@@ -34,7 +34,7 @@ CONFIGS=(false)
 if [[ -n $MODULE_FILE ]]; then
   CONFIGS+=(true)
 else
-  print -ru2 -- "(module not built; skipping with-module pass. Build with: cd module && make)"
+  print -ru2 -- "(module not built; skipping with-module pass. Build with: contextual-history-build-module)"
 fi
 
 typeset -i PASS=0 FAIL=0 SKIP=0

@@ -450,20 +450,87 @@ typeset -g _context_history_have_native_fast_refresh=false
   fi
 }
 
-# Convenience helper: build the optional native module from inside
-# zsh. Equivalent to `cd <plugin>/module && make "$@"`. Forwards args
-# so users can do e.g. `contextual-history-build-module clean` or
-# `... install`. Doesn't auto-load the built module - that takes a
-# fresh shell (or manual zmodload).
-function contextual-history-build-module() {
-  emulate -L zsh
-  local module_dir="$_context_history_plugin_dir/module"
-  if [[ ! -f $module_dir/Makefile ]]; then
-    print -ru2 -- "contextual-history-build-module: no Makefile at $module_dir"
-    return 1
+# Build the optional native module the way fzf-tab builds its module:
+# symlink our .c/.mdd into a zsh source tree's Src/Modules/ and let
+# zsh's own module build system do the rest. configure scans the .mdd
+# into config.modules; make generates the .mdh/.pro headers and
+# compiles/links with the same DLCFLAGS/DLLDFLAGS zsh uses for its
+# bundled dynamic modules - no hand-rolled platform flags.
+#
+# Usage: contextual-history-build-module [zsh-version]
+#   zsh-version defaults to $CONTEXTUAL_HISTORY_ZSH_SRC_VERSION,
+#   then the running zsh's $ZSH_VERSION.
+function _context-history-build-module() {
+  emulate -LR zsh -o extended_glob -o err_return
+
+  local zsh_version=${1:-${CONTEXTUAL_HISTORY_ZSH_SRC_VERSION:-$ZSH_VERSION}}
+  local module_home=$PWD
+
+  # macOS: match the running zsh's module flavour (.bundle vs .so).
+  local bundle nproc
+  if [[ $OSTYPE == darwin* ]]; then
+    [[ -n ${module_path[1]}/**/*.bundle(#qN) ]] && bundle=true
+    nproc=$(sysctl -n hw.logicalcpu)
+  else
+    nproc=$(nproc)
   fi
-  print -ru2 -- "contextual-history-build-module: building in $module_dir"
-  ( cd "$module_dir" && make "$@" )
+
+  # A build tree left behind by the old tarball-based Makefile flow
+  # has no .git - the git commands below would escape to whatever
+  # repo contains the plugin. Replace it with a proper clone (it
+  # needs reconfiguring anyway: its config.modules was generated
+  # without our .mdd present).
+  if [[ -d ./build/zsh-$zsh_version && ! -e ./build/zsh-$zsh_version/.git ]]; then
+    print -ru2 -- "contextual-history-build-module: replacing pre-git build tree at $PWD/build/zsh-$zsh_version"
+    rm -rf ./build/zsh-$zsh_version
+  fi
+
+  # Shallow-clone the release tag matching the running zsh.
+  [[ -d ./build/zsh-$zsh_version ]] || {
+    git clone --depth=1 --branch zsh-$zsh_version \
+      https://github.com/zsh-users/zsh ./build/zsh-$zsh_version
+  }
+
+  # Our module source. Symlinked before configure so the .mdd is
+  # scanned into config.modules.
+  ln -sf $module_home/contextual_history.c   ./build/zsh-$zsh_version/Src/Modules/
+  ln -sf $module_home/contextual_history.mdd ./build/zsh-$zsh_version/Src/Modules/
+
+  cd -q ./build/zsh-$zsh_version
+
+  git checkout -- .
+
+  # zsh 5.9 needs two upstream fixes to build with modern toolchains
+  # (same pair fzf-tab applies).
+  [[ $zsh_version != "5.9" ]] || {
+    curl -s https://github.com/zsh-users/zsh/commit/4c89849c98172c951a9def3690e8647dae76308f.patch | git apply --exclude=ChangeLog -
+    curl -s https://github.com/zsh-users/zsh/commit/ab4d62eb975a4c4c51dd35822665050e2ddc6918.patch | git apply --exclude=ChangeLog -
+  }
+
+  [[ -f ./configure ]] || ./Util/preconfig
+  [[ -f ./Makefile ]] || ./configure --disable-gdbm --disable-pcre \
+    --without-tcsetpgrp --prefix=/tmp/zsh-contextual-history-module \
+    ${bundle:+DL_EXT=bundle}
+  make -j$nproc
+
+  # Harvest to where the plugin (and tests) look for it:
+  # module/zsh/contextual_history.<so|bundle>.
+  mkdir -p $module_home/zsh
+  mv ./Src/Modules/contextual_history.(so|bundle) $module_home/zsh/
+}
+
+function contextual-history-build-module() {
+  {
+    pushd -q "$_context_history_plugin_dir/module"
+    if _context-history-build-module "$@"; then
+      print -P "%F{green}%Bcontextual-history: module built. Restart zsh (or zmodload zsh/contextual_history) to use it.%f%b"
+    else
+      print -P -u2 "%F{red}%Bcontextual-history: module build failed. See the output above for details.%f%b"
+      return 1
+    fi
+  } always {
+    popd -q
+  }
 }
 
 function _context-history-tee-acquire-symlink-lock() {
@@ -686,7 +753,10 @@ _context_history_initialized=false
 #   2. CONTEXTUAL_HISTORY_FZF_INTEGRATION / fzf-integration is true (default);
 #   3. the sibling file exists alongside us.
 # This avoids registering an unused widget for users who don't have
-# fzf installed, and lets users opt out explicitly.
+# fzf installed, and lets users opt out explicitly. Loader ordering
+# (ensuring fzf is on PATH before this plugin is sourced) is the
+# loader's responsibility - e.g. under zdot, the history module
+# declares `--after-tool fzf`.
 
 #-------------------------------------------------------------------------------
 # Auto-source the keybinds sibling
