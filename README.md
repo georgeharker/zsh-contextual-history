@@ -5,6 +5,10 @@ Share history across all shells — then filter what you see down to
 whatever scope you want: every shell, this project's directory, or
 just commands you typed in this shell.
 
+> 📖 Rendered documentation:
+> [docs.georgeharker.com/zsh-contextual-history](https://docs.georgeharker.com/zsh-contextual-history/)
+> · [dev](https://docs.georgeharker.com/zsh-contextual-history/dev/)
+
 A `SHARE_HISTORY`-compatible fork of [per-directory-history][upstream]
 that adds two orthogonal filter axes, an fzf-based search picker, and
 a zsh-autosuggestions-aware suggestion strategy.
